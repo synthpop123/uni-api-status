@@ -4,3 +4,7 @@ allowBuilds:
   better-sqlite3: true
   sharp: false
   unrs-resolver: false
+# 将 js-yaml 统一锁回 4.1.0（含 eslint 工具链的传递依赖）。
+# 4.2.0 发布过新，会被 CI 的 pnpm minimumReleaseAge 供应链策略拒绝。
+overrides:
+  js-yaml: 4.1.0
