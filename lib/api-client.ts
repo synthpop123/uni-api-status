@@ -7,6 +7,8 @@ import type {
   ModelStat,
   OverviewStats,
   ProviderInfo,
+  TimeseriesRange,
+  TimeseriesResponse,
 } from "@/lib/types"
 
 async function getJson<T>(url: string): Promise<T> {
@@ -33,6 +35,8 @@ const key = (apiKey: string) => encodeURIComponent(apiKey)
 
 export const api = {
   overview: (apiKey: string) => getJson<OverviewStats>(`/api/stats/overview?apiKey=${key(apiKey)}`),
+  timeseries: (apiKey: string, range: TimeseriesRange) =>
+    getJson<TimeseriesResponse>(`/api/stats/timeseries?apiKey=${key(apiKey)}&range=${range}`),
   modelStats: (apiKey: string) => getJson<ModelStat[]>(`/api/stats/models?apiKey=${key(apiKey)}`),
   channelStats: (apiKey: string) => getJson<ChannelStat[]>(`/api/stats/channels?apiKey=${key(apiKey)}`),
   filters: (apiKey: string) => getJson<{ models: string[]; providers: string[] }>(`/api/filters?apiKey=${key(apiKey)}`),

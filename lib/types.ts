@@ -18,6 +18,12 @@ export interface OverviewStats {
   completionTokens: number
   avgProcessTime: number
   avgFirstResponseTime: number
+  /** 成功率（0~1），由 channel_stats.success 聚合得出 */
+  successRate: number
+  /** 活跃模型数（distinct model） */
+  activeModels: number
+  /** 活跃渠道数（distinct provider） */
+  activeChannels: number
 }
 
 /** 模型 / 渠道维度的聚合统计（结构一致，仅分组维度不同） */
@@ -31,6 +37,23 @@ export interface DimensionStat {
   completionTokens: number
   avgProcessTime: number
   avgFirstResponseTime: number
+  /** 近期请求量迷你走势（用于表格 sparkline），可能缺省 */
+  spark?: number[]
+}
+
+/** 概览趋势图支持的时间范围 */
+export type TimeseriesRange = "1D" | "1W" | "1M" | "3M" | "ALL"
+
+/** 趋势图单点：t = 毫秒时间戳，v = 累计值 */
+export interface TimeseriesPoint {
+  t: number
+  v: number
+}
+
+/** 概览趋势图响应：累计请求数与累计 Token 两条序列 */
+export interface TimeseriesResponse {
+  requests: TimeseriesPoint[]
+  tokens: TimeseriesPoint[]
 }
 
 export interface ModelStat extends DimensionStat {
