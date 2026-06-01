@@ -55,6 +55,16 @@ export function KeyModal({
 
   const activeKey = tab === "saved" ? selected : input.trim()
 
+  // Close on Escape, matching the backdrop-click affordance.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [open, onClose])
+
   // Load the admin-visible key list once a validated admin key is active.
   useEffect(() => {
     let cancelled = false

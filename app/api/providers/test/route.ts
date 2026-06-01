@@ -1,31 +1,32 @@
 import { NextResponse } from "next/server"
-import { requireKey } from "@/lib/config"
+import { ApiError } from "@/lib/api-helpers"
+import { resolveTestTarget } from "@/lib/config"
 
 interface TestRequestBody {
   apiKey: string
   provider: string
-  base_url: string
-  api: string
   model: string
 }
 
 export async function POST(request: Request) {
   try {
-    const { apiKey, provider, base_url, api, model } = (await request.json()) as TestRequestBody
+    const { apiKey, provider, model } = (await request.json()) as TestRequestBody
 
-    if (!apiKey || !provider || !base_url || !api || !model) {
+    if (!apiKey || !provider || !model) {
       return NextResponse.json({ success: false, message: "缺少必要参数" }, { status: 400 })
     }
 
-    // 校验调用者持有有效 Key（无效会抛 ApiError）
+    // base_url / 上游密钥一律由服务端按渠道名从 api.yaml 解析，客户端无法注入任意目标（防 SSRF）
+    let base_url: string
+    let api: string
+    let resolvedModel: string
     try {
-      requireKey(apiKey)
-    } catch {
-      return NextResponse.json({ success: false, message: "未授权" }, { status: 403 })
-    }
-
-    if (!base_url.includes("/chat/completions") && !base_url.includes("/v1/messages")) {
-      return NextResponse.json({ success: false, message: "不支持的端点类型" })
+      ;({ base_url, api, model: resolvedModel } = resolveTestTarget(apiKey, provider, model))
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return NextResponse.json({ success: false, message: error.message }, { status: error.status })
+      }
+      throw error
     }
 
     const isAnthropic = base_url.includes("/v1/messages")
@@ -38,8 +39,8 @@ export async function POST(request: Request) {
     }
 
     const payload = isAnthropic
-      ? { model, max_tokens: 16, messages: [{ role: "user", content: "渠道测试，仅回复ok" }] }
-      : { model, messages: [{ role: "user", content: "渠道测试，仅回复ok" }] }
+      ? { model: resolvedModel, max_tokens: 16, messages: [{ role: "user", content: "渠道测试，仅回复ok" }] }
+      : { model: resolvedModel, messages: [{ role: "user", content: "渠道测试，仅回复ok" }] }
 
     const startTime = Date.now()
     try {

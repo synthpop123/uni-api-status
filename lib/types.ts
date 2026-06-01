@@ -101,7 +101,6 @@ export interface ProviderModel {
 export interface ProviderInfo {
   provider: string
   base_url: string
-  api: string
   models: ProviderModel[]
   supported: boolean
 }

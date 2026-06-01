@@ -28,10 +28,6 @@ const th = (align: "left" | "right" | "center"): React.CSSProperties => ({
 })
 const td: React.CSSProperties = { padding: "13px 18px", fontSize: 13.5, color: "var(--ink)" }
 
-function firstApi(apiField: string | string[]): string {
-  return Array.isArray(apiField) ? apiField[0] : apiField
-}
-
 function StatusCell({ st }: { st?: Result }) {
   if (!st || st.status === "idle") return <Badge size="sm">Idle</Badge>
   if (st.status === "testing")
@@ -108,8 +104,6 @@ export function Tester({ apiKey, toast }: { apiKey: string; toast: ToastPush }) 
         const res = await api.testProvider({
           apiKey,
           provider: p.provider,
-          base_url: p.base_url,
-          api: firstApi(p.api as string | string[]),
           model: modelConfig.original,
         })
         setResults((r) => ({
