@@ -312,25 +312,3 @@ export function Ring({
     </div>
   )
 }
-
-// ---------- Vertical bars (small) ----------
-export function MiniColumns({ data, height = 44, color }: { data: number[]; height?: number; color?: string }) {
-  const max = Math.max(...data) || 1
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height }}>
-      {data.map((v, i) => (
-        <div
-          key={i}
-          style={{
-            flex: 1,
-            height: Math.max(8, (v / max) * height) + "%",
-            background: color || "var(--accent)",
-            borderRadius: 2,
-            opacity: 0.35 + (v / max) * 0.65,
-            transition: "height .6s var(--ease)",
-          }}
-        />
-      ))}
-    </div>
-  )
-}

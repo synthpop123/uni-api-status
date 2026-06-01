@@ -25,9 +25,12 @@ export async function handleRoute(fn: () => Promise<NextResponse>): Promise<Next
   }
 }
 
-/** 从查询字符串读取必填的 apiKey，缺失则抛 400 */
+/**
+ * 读取必填的 apiKey：优先取 `x-api-key` 请求头（避免密钥出现在 URL / 访问日志中），
+ * 回退到查询字符串以兼容直接调用 API 的场景；都缺失则抛 400。
+ */
 export function requireApiKeyParam(request: Request): string {
-  const apiKey = new URL(request.url).searchParams.get("apiKey")
+  const apiKey = request.headers.get("x-api-key") || new URL(request.url).searchParams.get("apiKey")
   if (!apiKey) throw new ApiError(400, "API Key is required")
   return apiKey
 }

@@ -11,8 +11,9 @@ import type {
   TimeseriesResponse,
 } from "@/lib/types"
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+async function getJson<T>(url: string, apiKey?: string): Promise<T> {
+  // 通过请求头传递密钥，避免其出现在 URL / 访问日志 / 浏览器历史中
+  const res = await fetch(url, apiKey ? { headers: { "x-api-key": apiKey } } : undefined)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error || `请求失败 (${res.status})`)
@@ -31,31 +32,30 @@ async function postJson<T>(url: string, payload: unknown): Promise<T> {
   return body as T
 }
 
-const key = (apiKey: string) => encodeURIComponent(apiKey)
-
 export const api = {
-  overview: (apiKey: string) => getJson<OverviewStats>(`/api/stats/overview?apiKey=${key(apiKey)}`),
+  overview: (apiKey: string) => getJson<OverviewStats>(`/api/stats/overview`, apiKey),
   timeseries: (apiKey: string, range: TimeseriesRange) =>
-    getJson<TimeseriesResponse>(`/api/stats/timeseries?apiKey=${key(apiKey)}&range=${range}`),
-  modelStats: (apiKey: string) => getJson<ModelStat[]>(`/api/stats/models?apiKey=${key(apiKey)}`),
-  channelStats: (apiKey: string) => getJson<ChannelStat[]>(`/api/stats/channels?apiKey=${key(apiKey)}`),
-  filters: (apiKey: string) => getJson<{ models: string[]; providers: string[] }>(`/api/filters?apiKey=${key(apiKey)}`),
+    getJson<TimeseriesResponse>(`/api/stats/timeseries?range=${range}`, apiKey),
+  modelStats: (apiKey: string) => getJson<ModelStat[]>(`/api/stats/models`, apiKey),
+  channelStats: (apiKey: string) => getJson<ChannelStat[]>(`/api/stats/channels`, apiKey),
+  filters: (apiKey: string) => getJson<{ models: string[]; providers: string[] }>(`/api/filters`, apiKey),
 
   logs: (apiKey: string, page: number, limit: number, filters: LogFilters) => {
-    const params = new URLSearchParams({ apiKey, page: String(page), limit: String(limit) })
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (filters.model) params.set("model", filters.model)
     if (filters.provider) params.set("provider", filters.provider)
     if (filters.status) params.set("status", filters.status)
-    return getJson<LogsResponse>(`/api/logs?${params.toString()}`)
+    return getJson<LogsResponse>(`/api/logs?${params.toString()}`, apiKey)
   },
 
   validateKey: (apiKey: string) => postJson<{ valid: boolean; role?: string }>("/api/auth/validate-key", { apiKey }),
   availableKeys: (adminKey: string) => postJson<{ keys: ApiKeyEntry[] }>("/api/auth/available-keys", { adminKey }),
 
-  loadConfig: (apiKey: string) => getJson<{ config: string }>(`/api/config/load?apiKey=${key(apiKey)}`),
+  loadConfig: (apiKey: string) => getJson<{ config: string }>(`/api/config/load`, apiKey),
   saveConfig: (apiKey: string, config: string) => postJson<{ success: boolean }>("/api/config/save", { apiKey, config }),
 
-  providers: (apiKey: string) => getJson<{ providers: ProviderInfo[] }>(`/api/providers/list?apiKey=${key(apiKey)}`),
-  testProvider: (payload: { apiKey: string; provider: string; base_url: string; api: string; model: string }) =>
+  providers: (apiKey: string) => getJson<{ providers: ProviderInfo[] }>(`/api/providers/list`, apiKey),
+  // 仅传渠道名与模型；base_url 与上游密钥由服务端解析（防 SSRF / 密钥外泄）
+  testProvider: (payload: { apiKey: string; provider: string; model: string }) =>
     postJson<{ success: boolean; message: string; responseTime?: number }>("/api/providers/test", payload),
 }

@@ -14,11 +14,13 @@ import type {
 const CHAT_ENDPOINT = "POST /v1/chat/completions"
 
 // 跨 SQLite / PostgreSQL 通用的维度聚合字段（success 在两种库里都能与 true/false 比较）
+// 注意：成功率必须用 CASE 表达式求平均，而非 CAST(success AS FLOAT)——后者在
+// PostgreSQL 里会因 boolean 无法直接转 float 而报错（与 getOverview 口径保持一致）。
 const DIMENSION_FIELDS = `
   COUNT(*) as requests,
   COALESCE(SUM(CASE WHEN c.success = true THEN 1 ELSE 0 END), 0) as successes,
   COALESCE(SUM(CASE WHEN c.success = false THEN 1 ELSE 0 END), 0) as failures,
-  COALESCE(AVG(CAST(c.success AS FLOAT)), 0) as successRate,
+  COALESCE(AVG(CASE WHEN c.success = true THEN 1.0 ELSE 0.0 END), 0) as successRate,
   COALESCE(SUM(r.total_tokens), 0) as totalTokens,
   COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
   COALESCE(SUM(r.completion_tokens), 0) as completionTokens,

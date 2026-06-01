@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Badge, Button, Card, SectionHead, Segmented, Select } from "@/components/dashboard/primitives"
@@ -227,6 +227,15 @@ export function Logs({ apiKey }: { apiKey: string }) {
 }
 
 function FlagModal({ log, onClose }: { log: LogEntry; onClose: () => void }) {
+  // Close on Escape, matching the backdrop-click affordance.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [onClose])
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "grid", placeItems: "center", padding: 20 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)" }} />
