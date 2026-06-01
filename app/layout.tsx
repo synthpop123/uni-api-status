@@ -1,15 +1,35 @@
 import type React from "react"
-import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import type { Metadata, Viewport } from "next"
+import { Hanken_Grotesk, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { Providers } from "@/components/providers"
-import { Toaster } from "@/components/ui/toaster"
 
-const inter = Inter({ subsets: ["latin"] })
+const hanken = Hanken_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-hanken",
+  display: "swap",
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-jetbrains",
+  display: "swap",
+})
 
 export const metadata: Metadata = {
-  title: "UniAPI 管理面板",
-  description: "UniAPI 前端统计与管理应用",
+  title: "UniAPI · Gateway Analytics",
+  description: "Usage analytics, channel health, and live request logs for your UniAPI gateway.",
+  icons: {
+    icon: "https://raw.githubusercontent.com/yym68686/uni-api/refs/heads/main/static/favicon.ico",
+    apple: "https://raw.githubusercontent.com/yym68686/uni-api/refs/heads/main/static/apple-touch-icon.png",
+  },
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 }
 
 export default function RootLayout({
@@ -18,24 +38,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
-      <head>
-        <link
-          rel="icon"
-          href="https://raw.githubusercontent.com/yym68686/uni-api/refs/heads/main/static/favicon.ico"
-          type="image/x-icon"
-        />
-        <link
-          rel="apple-touch-icon"
-          href="https://raw.githubusercontent.com/yym68686/uni-api/refs/heads/main/static/apple-touch-icon.png"
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      </head>
-      <body className={inter.className}>
-        <Providers>
-          {children}
-          <Toaster />
-        </Providers>
+    <html lang="en" suppressHydrationWarning className={`${hanken.variable} ${jetbrainsMono.variable}`}>
+      <body>
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
-import type { LogFilters } from "@/lib/types"
+import type { LogFilters, TimeseriesRange } from "@/lib/types"
 
 const LOGS_PER_PAGE = 30
 
@@ -10,6 +10,14 @@ export function useOverview(apiKey: string) {
   return useQuery({
     queryKey: ["overview", apiKey],
     queryFn: () => api.overview(apiKey),
+    enabled: !!apiKey,
+  })
+}
+
+export function useTimeseries(apiKey: string, range: TimeseriesRange) {
+  return useQuery({
+    queryKey: ["timeseries", apiKey, range],
+    queryFn: () => api.timeseries(apiKey, range),
     enabled: !!apiKey,
   })
 }
