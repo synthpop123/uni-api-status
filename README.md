@@ -1,11 +1,13 @@
 # UniAPI Status - 前端统计与管理面板
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker Image](https://img.shields.io/badge/Docker-ghcr.io/melosbot/uni--api--status:latest-blue)](https://github.com/melosbot/uni-api-status/pkgs/container/uni-api-status)
+[![Docker Image](https://img.shields.io/docker/v/lkw123/uni-api-status?label=Docker&sort=semver)](https://hub.docker.com/r/lkw123/uni-api-status)
 
 一个现代化的 Web 应用程序，为 [uni-api](https://github.com/yym68686/uni-api) 提供图形化界面，用于可视化配置管理、全面的 API 使用统计分析以及渠道连通性测试。
 
-**镜像构建:** `ghcr.io/melosbot/uni-api-status:latest` (支持 amd64/arm64 架构)
+> 本仓库是 [melosbot/uni-api-status](https://github.com/melosbot/uni-api-status) 的 fork，升级到 Next.js 16 / React 19 并持续维护。
+
+**镜像:** `lkw123/uni-api-status:latest`（Docker Hub，支持 amd64/arm64 架构）
 
 ---
 
@@ -21,6 +23,7 @@
   - [🐳 Docker 部署](#-docker-部署)
     - [使用 Docker Compose (推荐)](#使用-docker-compose-推荐)
     - [直接使用 Docker CLI](#直接使用-docker-cli)
+    - [为自己的 fork 构建并发布镜像](#为自己的-fork-构建并发布镜像)
     - [Docker 环境变量](#docker-环境变量)
   - [🧭 功能导航](#-功能导航)
   - [❓ 常见问题 (Troubleshooting)](#-常见问题-troubleshooting)
@@ -48,13 +51,14 @@
 
 ## 🛠️ 技术栈
 
-- **前端框架**: Next.js 14 (App Router)
+- **前端框架**: Next.js 16 (App Router) + React 19
 - **UI 组件库**: shadcn/ui
 - **样式**: Tailwind CSS
+- **数据请求**: TanStack Query (React Query) v5
 - **图标**: Lucide React
 - **后端 API**: Next.js API Routes
 - **YAML 处理**: `js-yaml`
-- **统计数据源**: 直接读取 `uni-api` 生成的数据库，支持 SQLite 和 PostgreSQL
+- **统计数据源**: 直接读取 `uni-api` 生成的数据库，支持 SQLite (`better-sqlite3`) 和 PostgreSQL
 - **包管理器**: pnpm
 - **部署**: Docker & Docker Compose
 
@@ -62,7 +66,7 @@
 
 ### 环境要求
 
-- Node.js v18 或更高版本
+- Node.js v20.9 或更高版本（Next.js 16 要求）
 - pnpm 包管理器
 
 ### 安装步骤
@@ -70,7 +74,7 @@
 1. **克隆仓库**
 
     ```bash
-    git clone https://github.com/melosbot/uni-api-status.git
+    git clone https://github.com/synthpop123/uni-api-status.git
     cd uni-api-status
     ```
 
@@ -140,8 +144,9 @@
           - /path/to/uniapi/data:/home/data
 
       # 本应用的前端服务
-      uniapi-frontend:
-        image: ghcr.io/melosbot/uni-api-status:latest
+      uniapi-status:
+        # 把用户名换成你的 Docker Hub 账户即可使用自己 fork 构建的镜像
+        image: lkw123/uni-api-status:latest
         restart: unless-stopped
         ports:
           # 将宿主机的 3000 端口映射到容器。如果 3000 端口被占用，请修改左侧值，如 "8080:3000"
@@ -150,7 +155,7 @@
           - NODE_ENV=production
           - PORT=3000
           # 以下为容器内的路径，与 volumes 挂载点对应
-          - API_YAML_PATH=/app/config/api.yaml
+          - API_YAML_PATH=/app/data/api.yaml
           - STATS_DB_TYPE=sqlite # 或 postgres
           - STATS_DB_PATH=/app/data/stats.db # 如果使用 sqlite
           # 如果使用 postgres，请添加以下环境变量
@@ -160,10 +165,10 @@
           # - STATS_DB_PASSWORD=your_postgres_password
           # - STATS_DB_NAME=your_uniapi_database
         volumes:
-          # 将宿主机的 api.yaml 挂载到容器内，需要【读写】权限
-          - /path/to/your/uniapi/api.yaml:/app/config/api.yaml
-          # 如果使用 sqlite，将宿主机包含 stats.db 的目录挂载到容器内，建议只读【:ro】
-          - /path/to/your/uniapi/data:/app/data:ro
+          # 把含 api.yaml 与 stats.db 的 uni-api 数据目录挂载进来。
+          # 配置编辑器需写 api.yaml；SQLite WAL 模式读取也需目录可写，故不要用 :ro。
+          # SELinux 环境下可在末尾加 :z。
+          - /path/to/your/uniapi/data:/app/data
     ```
 
     </details>
@@ -188,21 +193,32 @@
 
 ```bash
 docker run -d \
-  --name uniapi-frontend \
+  --name uniapi-status \
   -p 3000:3000 \
   -e NODE_ENV=production \
   -e PORT=3000 \
-  -e API_YAML_PATH=/app/config/api.yaml \
+  -e API_YAML_PATH=/app/data/api.yaml \
   -e STATS_DB_TYPE=sqlite \
   -e STATS_DB_PATH=/app/data/stats.db \
-  -v /path/to/your/uniapi/api.yaml:/app/config/api.yaml \
-  -v /path/to/your/uniapi/data:/app/data:ro \
+  -v /path/to/your/uniapi/data:/app/data \
   --restart unless-stopped \
-  ghcr.io/melosbot/uni-api-status:latest
+  lkw123/uni-api-status:latest
 # 如果使用 PostgreSQL，请相应修改 -e 参数，并确保容器可以访问数据库
 ```
 
 </details>
+
+### 为自己的 fork 构建并发布镜像
+
+本仓库内置 GitHub Actions（[`.github/workflows/build-docker.yml`](.github/workflows/build-docker.yml)），向 **Docker Hub** 推送多架构镜像。在你自己的 fork 里启用只需三步：
+
+1. **在 Docker Hub 创建仓库与 Access Token**：登录 [Docker Hub](https://hub.docker.com/) → Account Settings → Personal access tokens → 生成一个具有 `Read & Write` 权限的 token。
+2. **在 GitHub fork 配置 Secrets**：仓库 → Settings → Secrets and variables → Actions，新增：
+   - `DOCKERHUB_USERNAME`：你的 Docker Hub 用户名（如 `lkw123`）。
+   - `DOCKERHUB_TOKEN`：上一步生成的 token。
+3. **修改镜像名并推送**：把 workflow 顶部的 `IMAGE_NAME` 改成 `你的用户名/uni-api-status`，然后 push 到 `main` 分支即自动构建并推送 `latest` 与 commit-sha 标签；打 `v*` 形式的 git tag 会额外生成语义化版本标签。
+
+之后在 `docker-compose.yml` 里把 `image:` 换成你的镜像名即可。
 
 ### Docker 环境变量
 
@@ -210,7 +226,7 @@ docker run -d \
 | --------------- | ----------------------------------- | ---------------------- |
 | `NODE_ENV`      | 运行环境                            | `production`           |
 | `PORT`          | 容器内应用监听端口                  | `3000`                 |
-| `API_YAML_PATH` | `api.yaml` 在容器内的绝对路径       | `/app/config/api.yaml` |
+| `API_YAML_PATH` | `api.yaml` 在容器内的绝对路径       | `/app/data/api.yaml`   |
 | `STATS_DB_TYPE` | 数据库类型 (`sqlite` 或 `postgres`) | `sqlite`               |
 | `STATS_DB_PATH` | `stats.db` 在容器内的绝对路径 (仅当 `STATS_DB_TYPE` 为 `sqlite` 时) | `/app/data/stats.db`   |
 | `STATS_DB_HOST` | PostgreSQL 主机 (仅当 `STATS_DB_TYPE` 为 `postgres` 时) | -                      |
@@ -276,8 +292,9 @@ docker run -d \
 
 ## 🙌 致谢
 
-- 本项目主体框架由 [v0 by Vercel](https://v0.dev) 构建。
-- 页面细节由 [Gemini](https://gemini.google.com/) 完善。
+- 原始项目来自 [melosbot/uni-api-status](https://github.com/melosbot/uni-api-status)。
+- 后端 API 网关 [uni-api](https://github.com/yym68686/uni-api) by yym68686。
+- 项目主体框架由 [v0 by Vercel](https://v0.dev) 构建。
 
 ## 📄 许可证
 

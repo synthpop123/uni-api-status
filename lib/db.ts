@@ -1,11 +1,15 @@
-import sqlite3 from "sqlite3";
-import { Pool } from "pg";
-import { promisify } from "util";
+import Database from "better-sqlite3"
+import { Pool } from "pg"
 
-const dbType = process.env.STATS_DB_TYPE || "sqlite";
+type Row = Record<string, unknown>
 
-let db: any;
-let query: any;
+const dbType = process.env.STATS_DB_TYPE || "sqlite"
+
+/**
+ * 统一的查询接口：接受 PostgreSQL 风格的 `$1, $2` 占位符与参数数组，返回行对象数组。
+ * SQLite 分支会把 `$n` 转换为 `?`（参数按位置顺序对应，因此每个占位符须按序使用一次）。
+ */
+let runQuery: (sql: string, params?: unknown[]) => Promise<Row[]>
 
 if (dbType === "postgres") {
   const pool = new Pool({
@@ -13,36 +17,32 @@ if (dbType === "postgres") {
     host: process.env.STATS_DB_HOST,
     database: process.env.STATS_DB_NAME,
     password: process.env.STATS_DB_PASSWORD,
-    port: parseInt(process.env.STATS_DB_PORT || "5432", 10),
-  });
+    port: Number.parseInt(process.env.STATS_DB_PORT || "5432", 10),
+  })
 
-  db = pool;
-  query = async (sql: string, params: any[] = []) => {
-    const client = await pool.connect();
-    try {
-      const result = await client.query(sql, params);
-      return result.rows;
-    } finally {
-      client.release();
-    }
-  };
+  runQuery = async (sql, params = []) => {
+    const result = await pool.query(sql, params as unknown[])
+    return result.rows as Row[]
+  }
 } else {
-  const dbPath = process.env.STATS_DB_PATH || "./data/stats.db";
-  const sqlite = new sqlite3.Database(dbPath);
-  db = sqlite;
+  const dbPath = process.env.STATS_DB_PATH || "./data/stats.db"
 
-  const all = promisify((sql: string, params: any[], callback: (err: Error | null, rows: any[]) => void) =>
-    sqlite.all(sql, params, callback)
-  );
-  const run = promisify((sql: string, params: any[], callback: (err: Error | null) => void) =>
-    sqlite.run(sql, params, callback)
-  );
+  // 惰性单例：避免在模块加载阶段（如构建时）就尝试打开数据库文件
+  let db: Database.Database | null = null
+  const getDb = () => {
+    if (!db) {
+      db = new Database(dbPath, { readonly: true, fileMustExist: true })
+    }
+    return db
+  }
 
-  query = async (sql: string, params: any[] = []) => {
-    // Replace $1, $2, etc. with ? for SQLite
-    const sqliteSql = sql.replace(/\$\d+/g, "?");
-    return await all(sqliteSql, params);
-  };
+  runQuery = async (sql, params = []) => {
+    const sqliteSql = sql.replace(/\$\d+/g, "?")
+    // better-sqlite3 仅支持 number/string/bigint/buffer/null，需把布尔值转成 0/1
+    const bound = params.map((p) => (typeof p === "boolean" ? (p ? 1 : 0) : p))
+    const stmt = getDb().prepare(sqliteSql)
+    return stmt.all(...bound) as Row[]
+  }
 }
 
-export { db, query };
+export const query = runQuery

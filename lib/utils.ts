@@ -70,3 +70,20 @@ export const getSuccessRateColor = (rate: number): string => {
   if (rate >= 0.8) return "text-yellow-600";
   return "text-red-600";
 };
+
+/**
+ * 将时间戳格式化为 GMT+8 (Asia/Shanghai) 的本地化字符串。
+ * @param timestamp ISO 8601 或兼容的日期字符串。
+ * @returns 格式化后的日期时间字符串，无效时返回 "无效日期"。
+ */
+export const formatTimestampGMT8 = (timestamp: string): string => {
+  if (!timestamp) return "无效日期";
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return "无效日期";
+  return date.toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Shanghai",
+  });
+};
