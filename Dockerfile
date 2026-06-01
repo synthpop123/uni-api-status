@@ -1,55 +1,45 @@
-# 文件名: Dockerfile
-
 # ==========================
-# 构建阶段 (Builder Stage)
+# 构建阶段 (Builder)
 # ==========================
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
-# 检查构建架构 (例如输出 x86_64 或 aarch64)
-RUN uname -m
-
-# 安装 pnpm 全局工具
-RUN npm install -g pnpm
-
-# 为原生模块编译安装必要的构建依赖 和 sqlite3 的运行时依赖
-RUN apk add --no-cache --virtual .build-deps build-base python3 linux-headers && \
-    apk add --no-cache sqlite-libs
-
-# 设置工作目录
 WORKDIR /app
 
-# 复制包管理文件
+# 启用 corepack 提供的 pnpm
+RUN corepack enable
+
+# 编译 better-sqlite3 原生模块所需的构建依赖
+RUN apk add --no-cache --virtual .build-deps build-base python3
+
+# 先复制包管理文件以利用层缓存
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
-# 安装所有依赖
-RUN pnpm install --frozen-lockfile --unsafe-perm=true
-
-# 复制项目所有源代码 (在 rebuild 之后)
+# 复制源码并构建（Next.js standalone 输出）
 COPY . .
-
-# 执行 Next.js 应用构建
 RUN pnpm build
 
-# 构建完成后，清理临时的构建工具依赖
+# 清理临时构建依赖
 RUN apk del .build-deps
 
 # ==========================
-# 生产阶段 (Runner Stage)
+# 生产阶段 (Runner)
 # ==========================
-FROM node:18-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
-
-# 安装 sqlite3 的运行时系统依赖
-RUN apk add --no-cache sqlite-libs
-
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
+# standalone 产物（含已 trace 的依赖）
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
+# 显式保证 better-sqlite3 原生 binding 存在（serverExternalPackages 不打包它）
+COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 
 EXPOSE 3000
 

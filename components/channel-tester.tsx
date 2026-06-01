@@ -14,6 +14,7 @@ import { CheckCircle, XCircle, Clock, Play, PlayCircle, AlertCircle } from "luci
 import { useToast } from "@/hooks/use-toast"
 // Import helper function from utils.ts
 import { formatTime } from "@/lib/utils"
+import { api } from "@/lib/api-client"
 
 // --- Interfaces ---
 
@@ -64,47 +65,28 @@ export function ChannelTester({ apiKey }: ChannelTesterProps) {
     }
     setLoading(true)
     try {
-      const response = await fetch(`/api/providers/list?apiKey=${encodeURIComponent(apiKey)}`)
-      if (response.ok) {
-        const data = await response.json()
-        const loadedProviders: Provider[] = data.providers || []
-        // Sort providers alphabetically by name for consistent order
-        // loadedProviders.sort((a, b) => a.provider.localeCompare(b.provider));
-        setProviders(loadedProviders)
+      const data = await api.providers(apiKey)
+      const loadedProviders: Provider[] = data.providers || []
+      setProviders(loadedProviders)
 
-        // Initialize selected models and reset test results
-        const initialSelections = new Map<string, string>()
-        const initialResults = new Map<string, TestResult>()
-        loadedProviders.forEach((provider) => {
-          if (provider.models.length > 0) {
-            // Default to the first model's display name
-            const defaultModelDisplay = provider.models[0].display;
-            initialSelections.set(provider.provider, defaultModelDisplay);
-            // Initialize result state for the default model
-             const testKey = `${provider.provider}-${defaultModelDisplay}`;
-             initialResults.set(testKey, {
-                 provider: provider.provider,
-                 model: defaultModelDisplay,
-                 status: "idle",
-             });
-          }
-        })
-        setSelectedModels(initialSelections)
-        setTestResults(initialResults)
-
-      } else {
-        toast({
-          title: "错误",
-          description: `加载渠道配置失败 (${response.status})`,
-          variant: "destructive",
-        })
-        setProviders([])
-      }
+      // Initialize selected models and reset test results
+      const initialSelections = new Map<string, string>()
+      const initialResults = new Map<string, TestResult>()
+      loadedProviders.forEach((provider) => {
+        if (provider.models.length > 0) {
+          const defaultModelDisplay = provider.models[0].display
+          initialSelections.set(provider.provider, defaultModelDisplay)
+          const testKey = `${provider.provider}-${defaultModelDisplay}`
+          initialResults.set(testKey, { provider: provider.provider, model: defaultModelDisplay, status: "idle" })
+        }
+      })
+      setSelectedModels(initialSelections)
+      setTestResults(initialResults)
     } catch (error) {
       console.error("加载渠道配置时发生错误:", error)
       toast({
         title: "错误",
-        description: "加载渠道配置时发生网络或解析错误",
+        description: `加载渠道配置失败: ${(error as Error).message}`,
         variant: "destructive",
       })
       setProviders([])
@@ -155,22 +137,13 @@ export function ChannelTester({ apiKey }: ChannelTesterProps) {
     )
 
     try {
-      const response = await fetch("/api/providers/test", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          apiKey, // Assuming the main apiKey is used for testing auth
-          provider: provider.provider,
-          base_url: provider.base_url,
-          // Use the first API key from the list if it's an array, or the string directly
-          api: Array.isArray(provider.api) ? provider.api[0] : provider.api,
-          model: selectedModel.original, // Use the original model name for the API call
-        }),
+      const result = await api.testProvider({
+        apiKey,
+        provider: provider.provider,
+        base_url: provider.base_url,
+        api: Array.isArray(provider.api) ? provider.api[0] : provider.api,
+        model: selectedModel.original,
       })
-
-      const result = await response.json()
 
       setTestResults(
         (prev) =>
@@ -332,12 +305,12 @@ export function ChannelTester({ apiKey }: ChannelTesterProps) {
                        <TableRow key={i}>
                          <TableCell><Skeleton className="h-5 w-full" /></TableCell>
                          <TableCell><Skeleton className="h-5 w-full" /></TableCell>
-                         <TableCell><Skeleton className="h-8 w-full" /></TableCell> {/* Select Skeleton */}
+                         <TableCell><Skeleton className="h-8 w-full" /></TableCell>
                          <TableCell className="text-center"><Skeleton className="h-5 w-5 rounded-full mx-auto" /></TableCell>
-                         <TableCell><Skeleton className="h-5 w-full rounded-md" /></TableCell> {/* Badge Skeleton */}
-                         <TableCell><Skeleton className="h-5 w-full" /></TableCell> {/* Message Skeleton */}
+                         <TableCell><Skeleton className="h-5 w-full rounded-md" /></TableCell>
+                         <TableCell><Skeleton className="h-5 w-full" /></TableCell>
                          <TableCell className="text-right"><Skeleton className="h-5 w-full ml-auto" /></TableCell>
-                         <TableCell className="text-center"><Skeleton className="h-7 w-7 rounded-sm mx-auto" /></TableCell> {/* Button Skeleton */}
+                         <TableCell className="text-center"><Skeleton className="h-7 w-7 rounded-sm mx-auto" /></TableCell>
                        </TableRow>
                      ))}
                    </TableBody>

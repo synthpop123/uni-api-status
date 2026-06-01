@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Trash2, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api-client";
 
 interface SavedApiKey {
   key: string;
@@ -89,34 +90,19 @@ function useApiKeyValidation() {
     setIsValidating(true);
     setValidationResult(null); // Reset previous result
     try {
-      const response = await fetch("/api/auth/validate-key", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ apiKey: keyToValidate }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.valid) {
-        const result: ValidationResult = { isValid: true, role: data.role };
-        setValidationResult(result);
-        setIsValidating(false);
-        return result;
-      } else {
-        const errorMsg = data.error || "Invalid API Key";
-        const result: ValidationResult = { isValid: false, error: errorMsg };
-        setValidationResult(result);
-        setIsValidating(false);
-        return result;
-      }
+      const data = await api.validateKey(keyToValidate);
+      const result: ValidationResult = data.valid
+        ? { isValid: true, role: data.role }
+        : { isValid: false, error: "Invalid API Key" };
+      setValidationResult(result);
+      return result;
     } catch (error) {
       console.error("Validation request failed:", error);
       const result: ValidationResult = { isValid: false, error: "Validation request failed." };
       setValidationResult(result);
-      setIsValidating(false);
       return result;
+    } finally {
+      setIsValidating(false);
     }
   }, []);
 
@@ -149,30 +135,14 @@ function useAvailableKeys(adminKey: string | null) {
         setIsLoadingAvailableKeys(true);
         setAvailableKeys([]); // Clear previous keys while loading
         try {
-            const response = await fetch("/api/auth/available-keys", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ adminKey }),
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                setAvailableKeys(data.keys || []);
-            } else {
-                const errorData = await response.json().catch(() => ({}));
-                toast({
-                    title: "错误",
-                    description: `获取可用 API Key 列表失败: ${errorData.error || response.statusText}`,
-                    variant: "destructive",
-                });
-                setAvailableKeys([]);
-            }
+            const data = await api.availableKeys(adminKey);
+            setAvailableKeys(
+                (data.keys || []).map((k) => ({ api: k.api, role: k.role || "user", name: k.name })),
+            );
         } catch (error) {
             toast({
                 title: "错误",
-                description: "获取可用 API Key 列表时发生网络错误",
+                description: `获取可用 API Key 列表失败: ${(error as Error).message}`,
                 variant: "destructive",
             });
             setAvailableKeys([]);
@@ -454,7 +424,7 @@ export function ApiKeyModal({
                              {/* Validation status icon */}
                              {isValidating && activeKey === selectedSavedKey && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                              {validationResult && activeKey === selectedSavedKey && !isValidating && (
-                                validationResult.isValid ? <CheckCircle className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4 text-red-600" title={validationResult.error}/>
+                                validationResult.isValid ? <CheckCircle className="h-4 w-4 text-green-600" /> : <span title={validationResult.error}><AlertCircle className="h-4 w-4 text-red-600" /></span>
                              )}
                          </div>
                      </div>

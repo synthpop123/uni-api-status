@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert" // Added Alert
 import { Save, Download, Upload, Loader2, CheckCircle, XCircle, Info } from "lucide-react" // Added more icons
 import yaml from "js-yaml" // Import js-yaml
+import { api } from "@/lib/api-client"
 
 interface ConfigEditorProps {
   apiKey: string
@@ -62,39 +63,27 @@ export function ConfigEditor({ apiKey }: ConfigEditorProps) {
     setIsYamlValid(true); // Assume valid initially
     setYamlError(null);
     try {
-      const response = await fetch(`/api/config/load?apiKey=${encodeURIComponent(apiKey)}`)
-      if (response.ok) {
-        const data = await response.json()
-        const loadedConfig = data.config || "" // Ensure it's a string
-        setConfig(loadedConfig)
-        // Validate loaded config
-        const validation = validateYaml(loadedConfig)
-        setIsYamlValid(validation.isValid)
-        setYamlError(validation.error)
-        if (!validation.isValid) {
-            toast({
-               title: "警告",
-               description: "加载的配置文件包含无效的 YAML 格式。",
-               variant: "destructive", // Use destructive variant for invalid format warning
-            })
-        }
-      } else {
-        console.error("加载配置失败:", response.statusText)
+      const data = await api.loadConfig(apiKey)
+      const loadedConfig = data.config || ""
+      setConfig(loadedConfig)
+      const validation = validateYaml(loadedConfig)
+      setIsYamlValid(validation.isValid)
+      setYamlError(validation.error)
+      if (!validation.isValid) {
         toast({
-          title: "错误",
-          description: `加载配置失败 (${response.status})`,
+          title: "警告",
+          description: "加载的配置文件包含无效的 YAML 格式。",
           variant: "destructive",
         })
-        setConfig("") // Clear config on error
       }
     } catch (error) {
-      console.error("加载配置时发生错误:", error)
+      console.error("加载配置失败:", error)
       toast({
         title: "错误",
-        description: "加载配置时发生网络错误",
+        description: `加载配置失败: ${(error as Error).message}`,
         variant: "destructive",
       })
-       setConfig("") // Clear config on error
+      setConfig("") // Clear config on error
     } finally {
       setLoading(false)
     }
@@ -106,7 +95,7 @@ export function ConfigEditor({ apiKey }: ConfigEditorProps) {
   }, [loadConfig]) // Depend on the memoized loadConfig function
 
   // --- Handle Config Change ---
-  const handleConfigChange = (event: React.ChangeEvent<Textarea>) => {
+  const handleConfigChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newConfig = event.target.value
     setConfig(newConfig)
     // Validate on change
@@ -132,37 +121,13 @@ export function ConfigEditor({ apiKey }: ConfigEditorProps) {
 
     setSaving(true)
     try {
-      const response = await fetch("/api/config/save", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          apiKey, // Ensure apiKey is included as per original code
-          config,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        toast({
-          title: "成功",
-          description: "配置已成功保存并应用。", // More informative message
-        })
-      } else {
-         console.error("保存配置失败:", data.error || response.statusText)
-        toast({
-          title: "保存失败",
-          description: data.error || `保存配置时发生错误 (${response.status})`,
-          variant: "destructive",
-        })
-      }
+      await api.saveConfig(apiKey, config)
+      toast({ title: "成功", description: "配置已成功保存并应用。" })
     } catch (error) {
-      console.error("保存配置时发生错误:", error)
+      console.error("保存配置失败:", error)
       toast({
-        title: "错误",
-        description: "保存配置时发生网络错误",
+        title: "保存失败",
+        description: (error as Error).message || "保存配置时发生错误",
         variant: "destructive",
       })
     } finally {
