@@ -9,11 +9,12 @@ export interface ApiKeyEntry {
 
 /**
  * 有实际请求的 Key 用量摘要，用于首页右上角的「查看某个 Key 用量」切换器。
- * key 为完整密钥（仅下发给已鉴权的 admin，作为 viewKey 过滤值）；
+ * id 为该 Key 的不透明标识（SHA-256 摘要，见 lib/config.ts 的 keyId）——不是密钥本身、不可反推，
+ * 前端仅把它作为 viewKey 引用值回传；完整密钥永不离开服务端。
  * 没有任何请求的 Key（如仅用于鉴权的 admin）不会出现在列表里。
  */
 export interface KeyUsage {
-  key: string
+  id: string
   name: string | null
   role: string
   requests: number

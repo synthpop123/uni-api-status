@@ -40,14 +40,16 @@ only admits it when its `role` is `admin`. The browser stores that admin key in 
 (`requireApiKeyParam` falls back to a query param). Every stats/logs/config route re-validates it
 with `requireAdmin` on each call.
 
-**Viewing a key's usage** is separate from auth. The header is always the admin key; a `?key=`
-query param (the `viewKey`) selects *whose* usage to show. `viewKey` empty/absent → aggregate
-across **all** keys (the default). `resolveViewKey` (in `lib/config.ts`) validates that a
-non-empty `viewKey` is a real `api.yaml` key before it reaches SQL. The browser stores the
-current selection in `uniapi_view_key`; the sidebar **KeySwitcher** (`key-switcher.tsx`, fed by
-`GET /api/stats/keys`) lists only keys that have ≥1 request. Raw keys belonging to other users are
-never needed by the logs UI — `lib/stats.ts` resolves each request's `api_key` to a `{keyName,
-keyRole}` label via `keyDirectory()` so the Logs screen can tag rows without leaking secrets.
+**Viewing a key's usage** is separate from auth. The header is always the admin key; a second
+`x-view-key` header carries the *viewKey id* — an **opaque SHA-256 fingerprint** of the key
+(`keyId` in `lib/config.ts`), never the raw secret and never in the URL — selecting *whose* usage
+to show. Empty/absent → aggregate across **all** keys (the default). `resolveViewKey` maps that
+fingerprint back to the real `api.yaml` key server-side (403 if it matches none) and only the
+resolved raw key reaches SQL. The browser stores the current selection (the fingerprint) in
+`uniapi_view_key`; the sidebar **KeySwitcher** (`key-switcher.tsx`, fed by `GET /api/stats/keys`,
+whose `KeyUsage.id` is that same fingerprint) lists only keys that have ≥1 request. **No raw key
+ever leaves the server**: the Logs UI likewise resolves each request's `api_key` to a `{keyName,
+keyRole}` label via `keyDirectory()`, so the Logs screen can tag rows without leaking secrets.
 
 ## Request flow
 
@@ -58,9 +60,10 @@ keyRole}` label via `keyDirectory()` so the Logs screen can tag rows without lea
   in `lib/api-client.ts`, which hits the API routes.
 - **API routes** (`app/api/**/route.ts`) are thin: wrap the body in `handleRoute()` (from
   `lib/api-helpers.ts`) for uniform error→JSON, gate with `requireAdmin(requireApiKeyParam(...))`,
-  resolve the optional `?key=` via `resolveViewKey`, then delegate to `lib/stats.ts` (DB stats,
-  always called with `viewKey: string | null`) or `lib/config.ts` (yaml). Throw
-  `ApiError(status, msg)` for expected failures.
+  resolve the optional viewKey id (`readViewKeyId` reads the `x-view-key` header) via
+  `resolveViewKey`, then delegate to `lib/stats.ts` (DB stats, always called with the resolved
+  `viewKey: string | null`) or `lib/config.ts` (yaml). Throw `ApiError(status, msg)` for expected
+  failures.
 
 ## Cross-database rules (lib/db.ts + lib/stats.ts)
 

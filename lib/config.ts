@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import fs from "node:fs"
 import yaml from "js-yaml"
 import { ApiError } from "@/lib/api-helpers"
@@ -68,16 +69,27 @@ export function keyDirectory(): Map<string, { name: string | null; role: string 
 }
 
 /**
- * 校验 viewKey 合法性：空值表示「查看全部 Key 的聚合用量」，返回 null；
- * 非空时必须是 api.yaml 中真实存在的 Key，否则抛 403，避免管理员注入任意密钥探测数据。
+ * 把一个 api.yaml 中的 Key 映射为「不透明标识」（SHA-256 十六进制摘要）。
+ * 这是前端引用某个 Key（决定查看谁的用量）时使用的值：它不是密钥本身、不可反推，
+ * 因此可以安全地下发浏览器、存入 localStorage、随请求头传输——完整密钥永不离开服务端。
+ * 采用无盐 SHA-256（而非 HMAC）以保证多实例 / 重启之间稳定且零配置；
+ * uni-api 的 Key 为高熵随机串，原像无法枚举，无需额外加盐。
  */
-export function resolveViewKey(viewKey: string | null | undefined): string | null {
-  if (!viewKey) return null
+export function keyId(rawKey: string): string {
+  return createHash("sha256").update(rawKey).digest("hex")
+}
+
+/**
+ * 把前端传来的 viewKey 标识解析回真实密钥（仅用于服务端 SQL 过滤，绝不下发）：
+ * 空值表示「查看全部 Key 的聚合用量」，返回 null；
+ * 非空时必须能匹配到 api.yaml 中某个真实 Key 的标识，否则抛 403，避免注入任意值探测数据。
+ */
+export function resolveViewKey(viewKeyId: string | null | undefined): string | null {
+  if (!viewKeyId) return null
   const { config } = readConfig()
-  if (!config.api_keys!.some((e) => e.api === viewKey)) {
-    throw new ApiError(403, "Unknown view key")
-  }
-  return viewKey
+  const entry = config.api_keys!.find((e) => keyId(e.api) === viewKeyId)
+  if (!entry) throw new ApiError(403, "Unknown view key")
+  return entry.api
 }
 
 /** 展开 provider 的 model 配置（字符串或 {original: display} 映射）为统一结构 */
