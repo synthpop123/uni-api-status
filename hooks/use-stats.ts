@@ -6,53 +6,65 @@ import type { LogFilters, TimeseriesRange } from "@/lib/types"
 
 const LOGS_PER_PAGE = 30
 
-export function useOverview(apiKey: string) {
+// 所有统计 hook 都接收 (adminKey, viewKey)：adminKey 是鉴权凭证，viewKey 决定查看哪个 Key 的
+// 用量（null = 全部聚合）。viewKey 进入 queryKey，切换时自动重新拉取。
+
+export function useOverview(adminKey: string, viewKey: string | null) {
   return useQuery({
-    queryKey: ["overview", apiKey],
-    queryFn: () => api.overview(apiKey),
-    enabled: !!apiKey,
+    queryKey: ["overview", adminKey, viewKey],
+    queryFn: () => api.overview(adminKey, viewKey),
+    enabled: !!adminKey,
   })
 }
 
-export function useTimeseries(apiKey: string, range: TimeseriesRange) {
+export function useTimeseries(adminKey: string, viewKey: string | null, range: TimeseriesRange) {
   return useQuery({
-    queryKey: ["timeseries", apiKey, range],
-    queryFn: () => api.timeseries(apiKey, range),
-    enabled: !!apiKey,
+    queryKey: ["timeseries", adminKey, viewKey, range],
+    queryFn: () => api.timeseries(adminKey, viewKey, range),
+    enabled: !!adminKey,
   })
 }
 
-export function useModelStats(apiKey: string) {
+export function useModelStats(adminKey: string, viewKey: string | null) {
   return useQuery({
-    queryKey: ["model-stats", apiKey],
-    queryFn: () => api.modelStats(apiKey),
-    enabled: !!apiKey,
+    queryKey: ["model-stats", adminKey, viewKey],
+    queryFn: () => api.modelStats(adminKey, viewKey),
+    enabled: !!adminKey,
   })
 }
 
-export function useChannelStats(apiKey: string) {
+export function useChannelStats(adminKey: string, viewKey: string | null) {
   return useQuery({
-    queryKey: ["channel-stats", apiKey],
-    queryFn: () => api.channelStats(apiKey),
-    enabled: !!apiKey,
+    queryKey: ["channel-stats", adminKey, viewKey],
+    queryFn: () => api.channelStats(adminKey, viewKey),
+    enabled: !!adminKey,
   })
 }
 
-export function useFilters(apiKey: string) {
+export function useFilters(adminKey: string, viewKey: string | null) {
   return useQuery({
-    queryKey: ["filters", apiKey],
-    queryFn: () => api.filters(apiKey),
-    enabled: !!apiKey,
+    queryKey: ["filters", adminKey, viewKey],
+    queryFn: () => api.filters(adminKey, viewKey),
+    enabled: !!adminKey,
   })
 }
 
-export function useLogs(apiKey: string, filters: LogFilters) {
+export function useLogs(adminKey: string, viewKey: string | null, filters: LogFilters) {
   return useInfiniteQuery({
-    queryKey: ["logs", apiKey, filters],
-    queryFn: ({ pageParam }) => api.logs(apiKey, pageParam, LOGS_PER_PAGE, filters),
+    queryKey: ["logs", adminKey, viewKey, filters],
+    queryFn: ({ pageParam }) => api.logs(adminKey, viewKey, pageParam, LOGS_PER_PAGE, filters),
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => (lastPage.hasNextPage ? allPages.length + 1 : undefined),
-    enabled: !!apiKey,
+    enabled: !!adminKey,
+  })
+}
+
+// 有实际请求的 Key 列表（首页右上角切换器）
+export function useKeyUsage(adminKey: string) {
+  return useQuery({
+    queryKey: ["key-usage", adminKey],
+    queryFn: () => api.keyUsage(adminKey),
+    enabled: !!adminKey,
   })
 }
 

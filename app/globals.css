@@ -260,12 +260,17 @@ textarea {
   background: var(--surface-2);
 }
 
+/* mobile-only header (hamburger); the desktop sidebar replaces it ≥880px */
+.mobile-header {
+  display: none;
+}
+
 /* responsive */
 @media (max-width: 880px) {
   .sidebar-desktop {
     display: none !important;
   }
-  .topbar-mobile {
+  .mobile-header {
     display: flex !important;
   }
   .table-desktop {

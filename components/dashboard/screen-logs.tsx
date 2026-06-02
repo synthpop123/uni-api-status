@@ -31,17 +31,27 @@ function apiLabel(endpoint: string): string {
   return endpoint.replace(/^POST\s+/, "") || "—"
 }
 
+// 每条请求所属 Key 的角色：有 name 直接显示 name，否则回退到角色名（不再拼接 “key”）；admin 用强调色区分。
+function RoleTag({ name, role }: { name: string | null; role: string }) {
+  const label = name || role
+  return (
+    <Badge tone={role === "admin" ? "accent" : "neutral"} size="sm" style={{ maxWidth: 150, overflow: "hidden" }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+    </Badge>
+  )
+}
+
 interface Filters {
   model: string
   provider: string
   status: "all" | "success" | "failed"
 }
 
-export function Logs({ apiKey }: { apiKey: string }) {
+export function Logs({ adminKey, viewKey }: { adminKey: string; viewKey: string | null }) {
   const [filters, setFilters] = useState<Filters>({ model: "all", provider: "all", status: "all" })
   const [flagView, setFlagView] = useState<LogEntry | null>(null)
 
-  const filtersQuery = useFilters(apiKey)
+  const filtersQuery = useFilters(adminKey, viewKey)
 
   const apiFilters: LogFilters = useMemo(
     () => ({
@@ -52,7 +62,7 @@ export function Logs({ apiKey }: { apiKey: string }) {
     [filters],
   )
 
-  const logsQuery = useLogs(apiKey, apiFilters)
+  const logsQuery = useLogs(adminKey, viewKey, apiFilters)
   const logs = useMemo(() => logsQuery.data?.pages.flatMap((p) => p.logs) ?? [], [logsQuery.data])
 
   const models = filtersQuery.data?.models ?? []
@@ -117,11 +127,12 @@ export function Logs({ apiKey }: { apiKey: string }) {
           {/* desktop */}
           <Card pad={0} style={{ overflow: "hidden" }} className="table-desktop">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1020 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1140 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--line)" }}>
                     <th style={thStyle("left")}>Time</th>
                     <th style={{ ...thStyle("left"), width: 70 }}>Status</th>
+                    <th style={thStyle("left")}>Role</th>
                     <th style={thStyle("left")}>Model</th>
                     <th style={thStyle("left")}>Channel</th>
                     <th style={thStyle("left")}>API</th>
@@ -153,6 +164,9 @@ export function Logs({ apiKey }: { apiKey: string }) {
                             Fail
                           </span>
                         )}
+                      </td>
+                      <td style={tdStyle}>
+                        <RoleTag name={l.keyName} role={l.keyRole} />
                       </td>
                       <td className="mono" style={{ ...tdStyle, fontSize: 12.5, fontWeight: 600 }}>{l.model}</td>
                       <td className="mono" style={{ ...tdStyle, fontSize: 12.5, color: l.provider ? "var(--ink-2)" : "var(--ink-faint)" }}>
@@ -210,8 +224,11 @@ export function Logs({ apiKey }: { apiKey: string }) {
           <div className="table-mobile" style={{ display: "none", flexDirection: "column", gap: 10 }}>
             {logs.map((l, i) => (
               <Card key={i} pad={16}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>{fmt.dt(l.timestamp)}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>{fmt.dt(l.timestamp)}</span>
+                    <RoleTag name={l.keyName} role={l.keyRole} />
+                  </span>
                   {l.success ? (
                     <Badge tone="up" size="sm">
                       <Icons.check size={11} />
