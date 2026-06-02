@@ -2,22 +2,22 @@
 
 export const fmt = {
   num(n: number | null | undefined): string {
-    if (n == null || isNaN(n)) return "0"
+    if (n == null || !Number.isFinite(n)) return "0"
     return Math.round(n).toLocaleString("en-US")
   },
   compact(n: number | null | undefined): string {
-    if (n == null || isNaN(n)) return "0"
+    if (n == null || !Number.isFinite(n)) return "0"
     if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B"
     if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M"
     if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1).replace(/\.?0+$/, "") + "K"
     return String(Math.round(n))
   },
   pct(n: number | null | undefined, d = 2): string {
-    if (n == null || isNaN(n)) return "—"
+    if (n == null || !Number.isFinite(n)) return "—"
     return (n * 100).toFixed(d) + "%"
   },
   time(s: number | null | undefined): string {
-    if (s == null || isNaN(s)) return "—"
+    if (s == null || !Number.isFinite(s)) return "—"
     if (s < 1) return Math.round(s * 1000) + "ms"
     return s.toFixed(2) + "s"
   },

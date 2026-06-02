@@ -7,7 +7,7 @@ const dbType = process.env.STATS_DB_TYPE || "sqlite"
 
 /**
  * 统一的查询接口：接受 PostgreSQL 风格的 `$1, $2` 占位符与参数数组，返回行对象数组。
- * SQLite 分支会把 `$n` 转换为 `?`（参数按位置顺序对应，因此每个占位符须按序使用一次）。
+ * SQLite 分支会按占位符编号把 `$n` 转换为 `?`，重复占位符也会绑定到同一个参数值。
  */
 let runQuery: (sql: string, params?: unknown[]) => Promise<Row[]>
 
@@ -37,9 +37,13 @@ if (dbType === "postgres") {
   }
 
   runQuery = async (sql, params = []) => {
-    const sqliteSql = sql.replace(/\$\d+/g, "?")
-    // better-sqlite3 仅支持 number/string/bigint/buffer/null，需把布尔值转成 0/1
-    const bound = params.map((p) => (typeof p === "boolean" ? (p ? 1 : 0) : p))
+    const bound: unknown[] = []
+    const sqliteSql = sql.replace(/\$(\d+)/g, (_, index: string) => {
+      const value = params[Number.parseInt(index, 10) - 1]
+      // better-sqlite3 仅支持 number/string/bigint/buffer/null，需把布尔值转成 0/1。
+      bound.push(typeof value === "boolean" ? (value ? 1 : 0) : value)
+      return "?"
+    })
     const stmt = getDb().prepare(sqliteSql)
     return stmt.all(...bound) as Row[]
   }

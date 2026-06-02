@@ -34,3 +34,17 @@ export function requireApiKeyParam(request: Request): string {
   if (!apiKey) throw new ApiError(400, "API Key is required")
   return apiKey
 }
+
+/** 安全读取 JSON 请求体；空 body / 非 JSON 都返回 400，而不是泄露为 500。 */
+export async function readJsonBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
+  try {
+    const body = await request.json()
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ApiError(400, "JSON object body is required")
+    }
+    return body as T
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw new ApiError(400, "Invalid JSON body")
+  }
+}

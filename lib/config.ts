@@ -69,8 +69,23 @@ function parseModels(provider: RawProvider): ProviderModel[] {
   })
 }
 
-const isSupportedEndpoint = (baseUrl?: string): boolean =>
-  Boolean(baseUrl && (baseUrl.includes("/chat/completions") || baseUrl.includes("/v1/messages")))
+function parseEndpoint(baseUrl?: string): URL | null {
+  if (!baseUrl) return null
+  try {
+    const url = new URL(baseUrl)
+    if (!["https:", "http:"].includes(url.protocol)) return null
+    if (url.username || url.password) return null
+    return url
+  } catch {
+    return null
+  }
+}
+
+const isSupportedEndpoint = (baseUrl?: string): boolean => {
+  const url = parseEndpoint(baseUrl)
+  if (!url) return false
+  return url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/v1/messages")
+}
 
 /**
  * 解析 providers 列表（用于渠道测试）；需校验调用者持有有效 Key。
@@ -107,7 +122,8 @@ export function resolveTestTarget(apiKey: string, providerName: string, modelDis
     ? config.providers.find((p) => p.provider === providerName)
     : undefined
   if (!provider) throw new ApiError(404, "Provider not found")
-  if (!isSupportedEndpoint(provider.base_url)) throw new ApiError(400, "Unsupported endpoint type")
+  const endpoint = parseEndpoint(provider.base_url)
+  if (!endpoint || !isSupportedEndpoint(provider.base_url)) throw new ApiError(400, "Unsupported endpoint type")
 
   const models = parseModels(provider)
   // 只允许测试该渠道实际声明的模型，按 display 或 original 匹配后回传真实 original
@@ -117,7 +133,7 @@ export function resolveTestTarget(apiKey: string, providerName: string, modelDis
   const api = Array.isArray(provider.api) ? provider.api[0] : provider.api
   if (!api) throw new ApiError(400, "Provider has no API key configured")
 
-  return { base_url: provider.base_url, api, model: model.original }
+  return { base_url: endpoint.toString(), api, model: model.original }
 }
 
 /** 管理员保存 api.yaml；会先校验权限与 YAML 语法 */
