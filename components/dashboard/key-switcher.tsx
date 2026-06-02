@@ -82,7 +82,7 @@ export function KeySwitcher({
     }
   }, [open])
 
-  const selected = value ? keys.find((k) => k.key === value) : null
+  const selected = value ? keys.find((k) => k.id === value) : null
   const triggerLabel = value ? keyTitle(selected, value) : "All keys"
 
   const select = (v: string | null) => {
@@ -233,13 +233,13 @@ export function KeySwitcher({
             ) : (
               keys.map((k) => (
                 <Row
-                  key={k.key}
-                  active={value === k.key}
+                  key={k.id}
+                  active={value === k.id}
                   icon={<Icons.key size={14} />}
-                  title={keyTitle(k, k.key)}
+                  title={keyTitle(k, k.id)}
                   badge={k.name ? k.role : undefined}
                   subtitle={`${fmt.num(k.requests)} reqs · ${fmt.compact(k.totalTokens)} tok`}
-                  onClick={() => select(k.key)}
+                  onClick={() => select(k.id)}
                 />
               ))
             )}
@@ -250,11 +250,11 @@ export function KeySwitcher({
   )
 }
 
-// 标签：有 name 显示 name，否则用角色名（不再拼接 “key”）；都没有时回退到截断后的密钥。
-function keyTitle(usage: KeyUsage | null | undefined, key: string): string {
+// 标签：有 name 显示 name，否则用角色名（不再拼接 “key”）；都没有时回退到截断后的标识。
+function keyTitle(usage: KeyUsage | null | undefined, id: string): string {
   if (usage?.name) return usage.name
   if (usage?.role && usage.role !== "unknown") return usage.role
-  return fmt.keyShort(key)
+  return fmt.keyShort(id)
 }
 
 function Row({

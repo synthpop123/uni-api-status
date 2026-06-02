@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { handleRoute, requireApiKeyParam } from "@/lib/api-helpers"
+import { handleRoute, readViewKeyId, requireApiKeyParam } from "@/lib/api-helpers"
 import { requireAdmin, resolveViewKey } from "@/lib/config"
 import { getLogs } from "@/lib/stats"
 import type { LogFilters } from "@/lib/types"
@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   return handleRoute(async () => {
     requireAdmin(requireApiKeyParam(request))
     const { searchParams } = new URL(request.url)
-    const viewKey = resolveViewKey(searchParams.get("key"))
+    const viewKey = resolveViewKey(readViewKeyId(request))
 
     const page = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10))
     const limit = Math.min(Math.max(1, Number.parseInt(searchParams.get("limit") || "30", 10)), 100)

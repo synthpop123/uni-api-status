@@ -35,6 +35,16 @@ export function requireApiKeyParam(request: Request): string {
   return apiKey
 }
 
+/**
+ * 读取可选的 viewKey 标识（决定查看「哪个 Key 的用量」）：优先取 `x-view-key` 请求头，
+ * 回退到 `?key=` 查询参数以兼容直接调用 API 的场景。注意：传输的是不透明标识
+ * （见 lib/config.ts 的 keyId），不是密钥本身——前端始终走请求头，绝不把它放进 URL。
+ * 真实密钥由 resolveViewKey 在服务端映射回来，仅用于 SQL 过滤。缺失返回 null（聚合全部）。
+ */
+export function readViewKeyId(request: Request): string | null {
+  return request.headers.get("x-view-key") || new URL(request.url).searchParams.get("key")
+}
+
 /** 安全读取 JSON 请求体；空 body / 非 JSON 都返回 400，而不是泄露为 500。 */
 export async function readJsonBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
   try {

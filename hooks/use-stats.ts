@@ -6,8 +6,9 @@ import type { LogFilters, TimeseriesRange } from "@/lib/types"
 
 const LOGS_PER_PAGE = 30
 
-// 所有统计 hook 都接收 (adminKey, viewKey)：adminKey 是鉴权凭证，viewKey 决定查看哪个 Key 的
-// 用量（null = 全部聚合）。viewKey 进入 queryKey，切换时自动重新拉取。
+// 所有统计 hook 都接收 (adminKey, viewKey)：adminKey 是鉴权凭证；viewKey 是「查看哪个 Key 用量」
+// 的不透明标识（非密钥本身，由 GET /api/stats/keys 下发，null = 全部聚合），经请求头发送。
+// viewKey 进入 queryKey，切换时自动重新拉取。
 
 export function useOverview(adminKey: string, viewKey: string | null) {
   return useQuery({

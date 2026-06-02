@@ -22,7 +22,7 @@ export default function HomePage() {
   const [mounted, setMounted] = useState(false)
   const [page, setPage] = useState<PageId>("overview")
   const [adminKey, setAdminKey] = useState<string | null>(null)
-  // 查看哪个 Key 的用量：null = 全部聚合（默认）
+  // 查看哪个 Key 的用量：存储的是该 Key 的不透明标识（KeyUsage.id，非密钥本身），null = 全部聚合（默认）
   const [viewKey, setViewKey] = useState<string | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -33,7 +33,14 @@ export default function HomePage() {
     try {
       const key = localStorage.getItem(ADMIN_KEY)
       if (key) setAdminKey(key)
-      setViewKey(localStorage.getItem(VIEW_KEY) || null)
+      // viewKey 现为不透明标识（64 位十六进制）。旧版本可能存了原始密钥，
+      // 升级后格式不符则丢弃，避免它被当作 viewKey 发出去（既会 403，也是历史遗留的明文密钥）。
+      const storedView = localStorage.getItem(VIEW_KEY)
+      if (storedView && /^[a-f0-9]{64}$/.test(storedView)) {
+        setViewKey(storedView)
+      } else if (storedView) {
+        localStorage.removeItem(VIEW_KEY)
+      }
       setCollapsed(localStorage.getItem(SIDEBAR_KEY) === "1")
     } catch {
       /* ignore */

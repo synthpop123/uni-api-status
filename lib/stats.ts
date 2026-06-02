@@ -1,5 +1,5 @@
 import { query } from "@/lib/db"
-import { keyDirectory } from "@/lib/config"
+import { keyDirectory, keyId } from "@/lib/config"
 import type {
   ChannelStat,
   KeyUsage,
@@ -368,6 +368,7 @@ export async function getLogs(
 /**
  * 有实际请求的 Key 用量摘要，按请求数降序，供首页右上角的 Key 切换器使用。
  * viewKey 恒为 null（始终聚合全部 Key 后再分组）；配置里已删除的 Key 仍会出现，角色记为 unknown。
+ * 注意：只下发 Key 的不透明标识（keyId），完整密钥仅在服务端用于目录查表，绝不离开服务端。
  */
 export async function getKeyUsage(): Promise<KeyUsage[]> {
   const scope = buildScope(null)
@@ -386,7 +387,7 @@ export async function getKeyUsage(): Promise<KeyUsage[]> {
     const key = String(r.apiKey)
     const label = directory.get(key)
     return {
-      key,
+      id: keyId(key),
       name: label?.name ?? null,
       role: label?.role ?? "unknown",
       requests: toNumber(r.requests),
