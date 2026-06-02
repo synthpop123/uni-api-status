@@ -12,6 +12,14 @@ export const fmt = {
     if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1).replace(/\.?0+$/, "") + "K"
     return String(Math.round(n))
   },
+  // 美元金额：极小额保留更多小数，避免显示成 $0.00。
+  money(n: number | null | undefined): string {
+    if (n == null || !Number.isFinite(n)) return "—"
+    if (n === 0) return "$0"
+    if (n < 0.01) return "$" + n.toFixed(4)
+    if (n < 1) return "$" + n.toFixed(3)
+    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  },
   pct(n: number | null | undefined, d = 2): string {
     if (n == null || !Number.isFinite(n)) return "—"
     return (n * 100).toFixed(d) + "%"
