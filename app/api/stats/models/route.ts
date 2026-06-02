@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
 import { handleRoute, requireApiKeyParam } from "@/lib/api-helpers"
+import { requireAdmin, resolveViewKey } from "@/lib/config"
 import { getModelStats } from "@/lib/stats"
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
-    const apiKey = requireApiKeyParam(request)
-    return NextResponse.json(await getModelStats(apiKey))
+    requireAdmin(requireApiKeyParam(request))
+    const viewKey = resolveViewKey(new URL(request.url).searchParams.get("key"))
+    return NextResponse.json(await getModelStats(viewKey))
   })
 }

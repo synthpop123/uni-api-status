@@ -1,7 +1,11 @@
 // 前端统一的 API 调用封装：所有请求集中在此，带类型，便于复用与维护。
+//
+// 鉴权模型：浏览器只持有 admin key，作为 `x-api-key` 头随每个请求发送（服务端逐次校验）。
+// 统计类接口额外接受一个 viewKey —— 决定查看「哪个 Key 的用量」，为 null 时聚合全部，
+// 通过 `?key=` 查询参数传递（服务端会校验它是 api.yaml 中真实存在的 Key）。
 import type {
-  ApiKeyEntry,
   ChannelStat,
+  KeyUsage,
   LogFilters,
   LogsResponse,
   ModelStat,
@@ -32,24 +36,37 @@ async function postJson<T>(url: string, payload: unknown): Promise<T> {
   return body as T
 }
 
-export const api = {
-  overview: (apiKey: string) => getJson<OverviewStats>(`/api/stats/overview`, apiKey),
-  timeseries: (apiKey: string, range: TimeseriesRange) =>
-    getJson<TimeseriesResponse>(`/api/stats/timeseries?range=${range}`, apiKey),
-  modelStats: (apiKey: string) => getJson<ModelStat[]>(`/api/stats/models`, apiKey),
-  channelStats: (apiKey: string) => getJson<ChannelStat[]>(`/api/stats/channels`, apiKey),
-  filters: (apiKey: string) => getJson<{ models: string[]; providers: string[] }>(`/api/filters`, apiKey),
+// 把 viewKey 拼成 `?key=` / `&key=`；null（查看全部）时原样返回。
+function withKey(url: string, viewKey: string | null): string {
+  if (!viewKey) return url
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}key=${encodeURIComponent(viewKey)}`
+}
 
-  logs: (apiKey: string, page: number, limit: number, filters: LogFilters) => {
+export const api = {
+  overview: (adminKey: string, viewKey: string | null) =>
+    getJson<OverviewStats>(withKey(`/api/stats/overview`, viewKey), adminKey),
+  timeseries: (adminKey: string, viewKey: string | null, range: TimeseriesRange) =>
+    getJson<TimeseriesResponse>(withKey(`/api/stats/timeseries?range=${range}`, viewKey), adminKey),
+  modelStats: (adminKey: string, viewKey: string | null) =>
+    getJson<ModelStat[]>(withKey(`/api/stats/models`, viewKey), adminKey),
+  channelStats: (adminKey: string, viewKey: string | null) =>
+    getJson<ChannelStat[]>(withKey(`/api/stats/channels`, viewKey), adminKey),
+  filters: (adminKey: string, viewKey: string | null) =>
+    getJson<{ models: string[]; providers: string[] }>(withKey(`/api/filters`, viewKey), adminKey),
+
+  logs: (adminKey: string, viewKey: string | null, page: number, limit: number, filters: LogFilters) => {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (filters.model) params.set("model", filters.model)
     if (filters.provider) params.set("provider", filters.provider)
     if (filters.status) params.set("status", filters.status)
-    return getJson<LogsResponse>(`/api/logs?${params.toString()}`, apiKey)
+    return getJson<LogsResponse>(withKey(`/api/logs?${params.toString()}`, viewKey), adminKey)
   },
 
+  // 有实际请求的 Key 用量列表（首页右上角切换器）
+  keyUsage: (adminKey: string) => getJson<{ keys: KeyUsage[] }>(`/api/stats/keys`, adminKey),
+
   validateKey: (apiKey: string) => postJson<{ valid: boolean; role?: string }>("/api/auth/validate-key", { apiKey }),
-  availableKeys: (adminKey: string) => postJson<{ keys: ApiKeyEntry[] }>("/api/auth/available-keys", { adminKey }),
 
   loadConfig: (apiKey: string) => getJson<{ config: string }>(`/api/config/load`, apiKey),
   saveConfig: (apiKey: string, config: string) => postJson<{ success: boolean }>("/api/config/save", { apiKey, config }),

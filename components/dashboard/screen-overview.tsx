@@ -24,15 +24,15 @@ const RANGE_LABEL: Record<TimeseriesRange, string> = {
   ALL: "All time",
 }
 
-export function Overview({ apiKey }: { apiKey: string }) {
+export function Overview({ adminKey, viewKey }: { adminKey: string; viewKey: string | null }) {
   const [range, setRange] = useState<TimeseriesRange>("1M")
   const [metric, setMetric] = useState<"requests" | "tokens">("requests")
   const [scrub, setScrub] = useState<{ t: number; v: number } | null>(null)
 
-  const ts = useTimeseries(apiKey, range)
-  const overview = useOverview(apiKey)
-  const models = useModelStats(apiKey)
-  const channels = useChannelStats(apiKey)
+  const ts = useTimeseries(adminKey, viewKey, range)
+  const overview = useOverview(adminKey, viewKey)
+  const models = useModelStats(adminKey, viewKey)
+  const channels = useChannelStats(adminKey, viewKey)
 
   // settle skeleton briefly even after cache hit for a smoother entrance
   const [warm, setWarm] = useState(false)

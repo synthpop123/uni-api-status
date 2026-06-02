@@ -1,6 +1,8 @@
 import { query } from "@/lib/db"
+import { keyDirectory } from "@/lib/config"
 import type {
   ChannelStat,
+  KeyUsage,
   LogEntry,
   LogFilters,
   LogsResponse,
@@ -16,11 +18,21 @@ import type {
 // 否则纯 Claude（/v1/messages）或 Responses API 后端会让面板完全没有数据。
 const CHAT_ENDPOINTS = ["POST /v1/chat/completions", "POST /v1/messages", "POST /v1/responses"]
 
-// 生成 `endpoint IN ($n, $n+1, …)` 子句：从 start 编号开始，返回子句文本与下一个可用占位符序号。
-// 这样无论后端是 PostgreSQL 还是 SQLite（db.ts 会把 $n 转成 ?）都能正确绑定多个端点。
-function endpointIn(start: number): { clause: string; next: number } {
-  const placeholders = CHAT_ENDPOINTS.map((_, k) => `$${start + k}`).join(", ")
-  return { clause: `(${placeholders})`, next: start + CHAT_ENDPOINTS.length }
+// 构造所有统计查询共享的 WHERE 片段与前置参数（占位符从 $1 起）：
+//   - 始终按 CHAT_ENDPOINTS 过滤对话流量；
+//   - viewKey 为 null 时不加 api_key 过滤 → 聚合「全部 Key」的用量（首页默认视图）；
+//     非 null 时追加 `api_key = $n`，只看该 Key。
+// prefix 用于带/不带表别名的查询（如 `r.` 或 ``）。db.ts 会把 $n 转成 SQLite 的 ?。
+function buildScope(viewKey: string | null, prefix = "r."): { where: string; params: unknown[]; next: number } {
+  const params: unknown[] = [...CHAT_ENDPOINTS]
+  const placeholders = CHAT_ENDPOINTS.map((_, k) => `$${k + 1}`).join(", ")
+  let where = `${prefix}endpoint IN (${placeholders})`
+  let next = CHAT_ENDPOINTS.length + 1
+  if (viewKey) {
+    where += ` AND ${prefix}api_key = $${next++}`
+    params.push(viewKey)
+  }
+  return { where, params, next }
 }
 
 // 将 channel_stats 先按 request_id 压成一行，避免与 request_stats 一对多 join 时放大请求数与 token 量。
@@ -67,7 +79,8 @@ function computeCost(
   return (toNumber(promptTokens) * pp + toNumber(completionTokens) * cp) / 1e6
 }
 
-export async function getOverview(apiKey: string): Promise<OverviewStats> {
+export async function getOverview(viewKey: string | null): Promise<OverviewStats> {
+  const scope = buildScope(viewKey)
   const rows = await query(
     `SELECT
        COUNT(*) as requests,
@@ -81,8 +94,8 @@ export async function getOverview(apiKey: string): Promise<OverviewStats> {
        COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as "successRate"
      FROM request_stats r
      LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-     WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}`,
-    [apiKey, ...CHAT_ENDPOINTS],
+     WHERE ${scope.where}`,
+    scope.params,
   )
   const r = rows[0] ?? {}
   return {
@@ -114,7 +127,7 @@ const RANGE_POINTS: Record<TimeseriesRange, number> = {
   ALL: 72,
 }
 
-export async function getTimeseries(apiKey: string, range: TimeseriesRange): Promise<TimeseriesResponse> {
+export async function getTimeseries(viewKey: string | null, range: TimeseriesRange): Promise<TimeseriesResponse> {
   const now = Date.now()
   const windowMs = RANGE_MS[range] ?? null
   const points = RANGE_POINTS[range] ?? 60
@@ -122,26 +135,27 @@ export async function getTimeseries(apiKey: string, range: TimeseriesRange): Pro
   const cutoffIso = cutoffMs == null ? null : new Date(cutoffMs).toISOString()
 
   // 窗口内的请求（仅 request_stats，行数=请求数，tok=Token）
-  const ep = endpointIn(2)
-  const params: unknown[] = [apiKey, ...CHAT_ENDPOINTS]
+  const scope = buildScope(viewKey, "")
+  const params = [...scope.params]
   let sql = `SELECT timestamp, COALESCE(total_tokens, 0) as tok
              FROM request_stats
-             WHERE api_key = $1 AND endpoint IN ${ep.clause}`
+             WHERE ${scope.where}`
   if (cutoffIso != null) {
-    sql += ` AND timestamp >= $${ep.next}`
+    sql += ` AND timestamp >= $${scope.next}`
     params.push(cutoffIso)
   }
   sql += ` ORDER BY timestamp ASC`
 
   // 窗口前的累计基线（让曲线像 Robinhood 资产曲线一样落在总量上）
+  const baseScope = buildScope(viewKey, "")
   const baselinePromise =
     cutoffIso == null
       ? Promise.resolve([{ cnt: 0, tok: 0 }])
       : query(
           `SELECT COUNT(*) as cnt, COALESCE(SUM(total_tokens), 0) as tok
            FROM request_stats
-           WHERE api_key = $1 AND endpoint IN ${ep.clause} AND timestamp < $${ep.next}`,
-          [apiKey, ...CHAT_ENDPOINTS, cutoffIso],
+           WHERE ${baseScope.where} AND timestamp < $${baseScope.next}`,
+          [...baseScope.params, cutoffIso],
         )
 
   const [rows, baseRows] = await Promise.all([query(sql, params), baselinePromise])
@@ -179,16 +193,16 @@ export async function getTimeseries(apiKey: string, range: TimeseriesRange): Pro
 const SPARK_BUCKETS = 24
 const SPARK_WINDOW_MS = 30 * 86400e3
 
-async function buildSparks(apiKey: string, field: "model" | "provider"): Promise<Map<string, number[]>> {
+async function buildSparks(viewKey: string | null, field: "model" | "provider"): Promise<Map<string, number[]>> {
   const now = Date.now()
   const start = now - SPARK_WINDOW_MS
   const cutoffIso = new Date(start).toISOString()
-  const ep = endpointIn(2)
+  const scope = buildScope(viewKey, "")
   const rows = await query(
     `SELECT ${field} as name, timestamp
      FROM request_stats
-     WHERE api_key = $1 AND endpoint IN ${ep.clause} AND timestamp >= $${ep.next}`,
-    [apiKey, ...CHAT_ENDPOINTS, cutoffIso],
+     WHERE ${scope.where} AND timestamp >= $${scope.next}`,
+    [...scope.params, cutoffIso],
   )
   const step = SPARK_WINDOW_MS / SPARK_BUCKETS
   const map = new Map<string, number[]>()
@@ -209,18 +223,19 @@ async function buildSparks(apiKey: string, field: "model" | "provider"): Promise
   return map
 }
 
-export async function getModelStats(apiKey: string): Promise<ModelStat[]> {
+export async function getModelStats(viewKey: string | null): Promise<ModelStat[]> {
+  const scope = buildScope(viewKey)
   const [rows, sparks] = await Promise.all([
     query(
       `SELECT r.model, ${DIMENSION_FIELDS}
        FROM request_stats r
        LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}
+       WHERE ${scope.where}
        GROUP BY r.model
        ORDER BY requests DESC`,
-      [apiKey, ...CHAT_ENDPOINTS],
+      scope.params,
     ),
-    buildSparks(apiKey, "model"),
+    buildSparks(viewKey, "model"),
   ])
   return rows.map((r) => {
     const name = String(r.model ?? "unknown")
@@ -228,7 +243,8 @@ export async function getModelStats(apiKey: string): Promise<ModelStat[]> {
   })
 }
 
-export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
+export async function getChannelStats(viewKey: string | null): Promise<ChannelStat[]> {
+  const scope = buildScope(viewKey)
   const [rows, sparks] = await Promise.all([
     query(
       // provider 为 NULL 表示请求在选定渠道前就失败了（无法归因到任何渠道），
@@ -236,12 +252,12 @@ export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
       `SELECT r.provider, ${DIMENSION_FIELDS}
        FROM request_stats r
        LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause} AND r.provider IS NOT NULL
+       WHERE ${scope.where} AND r.provider IS NOT NULL
        GROUP BY r.provider
        ORDER BY requests DESC`,
-      [apiKey, ...CHAT_ENDPOINTS],
+      scope.params,
     ),
-    buildSparks(apiKey, "provider"),
+    buildSparks(viewKey, "provider"),
   ])
   return rows.map((r) => {
     const name = String(r.provider ?? "unknown")
@@ -249,15 +265,17 @@ export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
   })
 }
 
-export async function getFilters(apiKey: string): Promise<{ models: string[]; providers: string[] }> {
+export async function getFilters(viewKey: string | null): Promise<{ models: string[]; providers: string[] }> {
+  const ms = buildScope(viewKey, "")
+  const ps = buildScope(viewKey, "")
   const [models, providers] = await Promise.all([
     query(
-      `SELECT DISTINCT model FROM request_stats WHERE api_key = $1 AND endpoint IN ${endpointIn(2).clause} AND model IS NOT NULL ORDER BY model`,
-      [apiKey, ...CHAT_ENDPOINTS],
+      `SELECT DISTINCT model FROM request_stats WHERE ${ms.where} AND model IS NOT NULL ORDER BY model`,
+      ms.params,
     ),
     query(
-      `SELECT DISTINCT provider FROM request_stats WHERE api_key = $1 AND endpoint IN ${endpointIn(2).clause} AND provider IS NOT NULL ORDER BY provider`,
-      [apiKey, ...CHAT_ENDPOINTS],
+      `SELECT DISTINCT provider FROM request_stats WHERE ${ps.where} AND provider IS NOT NULL ORDER BY provider`,
+      ps.params,
     ),
   ])
   return {
@@ -267,15 +285,15 @@ export async function getFilters(apiKey: string): Promise<{ models: string[]; pr
 }
 
 export async function getLogs(
-  apiKey: string,
+  viewKey: string | null,
   options: LogFilters & { page: number; limit: number },
 ): Promise<LogsResponse> {
   const { page, limit, model, provider, status } = options
 
-  const ep = endpointIn(2)
-  const where: string[] = ["r.api_key = $1", `r.endpoint IN ${ep.clause}`]
-  const params: unknown[] = [apiKey, ...CHAT_ENDPOINTS]
-  let i = ep.next
+  const scope = buildScope(viewKey)
+  const where: string[] = [scope.where]
+  const params: unknown[] = [...scope.params]
+  let i = scope.next
 
   if (model) {
     where.push(`r.model = $${i++}`)
@@ -302,6 +320,7 @@ export async function getLogs(
       r.client_ip as "clientIp",
       r.model,
       r.provider,
+      r.api_key as "apiKey",
       r.process_time as "processTime",
       r.first_response_time as "firstResponseTime",
       r.prompt_tokens as "promptTokens",
@@ -317,9 +336,13 @@ export async function getLogs(
     LIMIT $${i++} OFFSET $${i++}`
   params.push(limit + 1, offset)
 
+  // 用 api.yaml 目录把每条请求的 api_key 解析成可读标签；完整密钥不下发到前端。
+  const directory = keyDirectory()
   const rows = await query(sql, params)
   const hasNextPage = rows.length > limit
-  const logs: LogEntry[] = (hasNextPage ? rows.slice(0, limit) : rows).map((r) => ({
+  const logs: LogEntry[] = (hasNextPage ? rows.slice(0, limit) : rows).map((r) => {
+    const label = r.apiKey ? directory.get(String(r.apiKey)) : undefined
+    return {
     timestamp: String(r.timestamp ?? ""),
     success: toBool(r.success),
     isFlagged: toBool(r.isFlagged),
@@ -327,6 +350,8 @@ export async function getLogs(
     clientIp: r.clientIp ? String(r.clientIp) : null,
     model: String(r.model ?? ""),
     provider: r.provider ? String(r.provider) : null,
+    keyName: label?.name ?? null,
+    keyRole: label?.role ?? "unknown",
     processTime: toNumber(r.processTime),
     firstResponseTime: toNumber(r.firstResponseTime),
     promptTokens: toNumber(r.promptTokens),
@@ -334,9 +359,40 @@ export async function getLogs(
     totalTokens: toNumber(r.totalTokens),
     cost: computeCost(r.promptPrice, r.completionPrice, r.promptTokens, r.completionTokens),
     text: (r.text as string | null) ?? null,
-  }))
+    }
+  })
 
   return { logs, hasNextPage }
+}
+
+/**
+ * 有实际请求的 Key 用量摘要，按请求数降序，供首页右上角的 Key 切换器使用。
+ * viewKey 恒为 null（始终聚合全部 Key 后再分组）；配置里已删除的 Key 仍会出现，角色记为 unknown。
+ */
+export async function getKeyUsage(): Promise<KeyUsage[]> {
+  const scope = buildScope(null)
+  const rows = await query(
+    `SELECT r.api_key as "apiKey",
+            COUNT(*) as requests,
+            COALESCE(SUM(r.total_tokens), 0) as "totalTokens"
+     FROM request_stats r
+     WHERE ${scope.where} AND r.api_key IS NOT NULL
+     GROUP BY r.api_key
+     ORDER BY requests DESC`,
+    scope.params,
+  )
+  const directory = keyDirectory()
+  return rows.map((r) => {
+    const key = String(r.apiKey)
+    const label = directory.get(key)
+    return {
+      key,
+      name: label?.name ?? null,
+      role: label?.role ?? "unknown",
+      requests: toNumber(r.requests),
+      totalTokens: toNumber(r.totalTokens),
+    }
+  })
 }
 
 function mapDimension(r: Record<string, unknown>) {

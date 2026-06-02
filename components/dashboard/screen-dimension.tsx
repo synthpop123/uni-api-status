@@ -236,8 +236,8 @@ function DimensionTable({
   )
 }
 
-export function Models({ apiKey }: { apiKey: string }) {
-  const q = useModelStats(apiKey)
+export function Models({ adminKey, viewKey }: { adminKey: string; viewKey: string | null }) {
+  const q = useModelStats(adminKey, viewKey)
   const rows: Row[] = (q.data ?? []).map((m) => ({ ...m, name: m.model }))
   const sub = q.isLoading ? "Loading model usage…" : `${rows.length} models routed through the gateway`
   return (
@@ -253,8 +253,8 @@ export function Models({ apiKey }: { apiKey: string }) {
   )
 }
 
-export function Channels({ apiKey }: { apiKey: string }) {
-  const q = useChannelStats(apiKey)
+export function Channels({ adminKey, viewKey }: { adminKey: string; viewKey: string | null }) {
+  const q = useChannelStats(adminKey, viewKey)
   const rows: Row[] = (q.data ?? []).map((c) => ({ ...c, name: c.provider }))
   const sub = q.isLoading ? "Loading channel health…" : `${rows.length} upstream providers configured`
   return (

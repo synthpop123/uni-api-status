@@ -84,6 +84,8 @@ export const Icons: Record<string, IconComponent> = {
   menu: I(["M3 6h18", "M3 12h18", "M3 18h18"]),
   chevron: I(["M9 6l6 6-6 6"]),
   chevronDown: I(["M6 9l6 6 6-6"]),
+  chevronsUpDown: I(["m7 15 5 5 5-5", "m7 9 5-5 5 5"]),
+  panelLeft: I([{ tag: "rect", attrs: { x: 3, y: 3, width: 18, height: 18, rx: 2 } }, "M9 3v18"]),
   search: I([{ tag: "circle", attrs: { cx: 11, cy: 11, r: 7 } }, "M21 21l-4-4"]),
   arrow: I(["M5 12h14", "M13 6l6 6-6 6"]),
   lock: I([{ tag: "rect", attrs: { x: 4, y: 10, width: 16, height: 11, rx: 2 } }, "M8 10V7a4 4 0 0 1 8 0v3"]),

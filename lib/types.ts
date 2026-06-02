@@ -7,6 +7,19 @@ export interface ApiKeyEntry {
   name?: string
 }
 
+/**
+ * 有实际请求的 Key 用量摘要，用于首页右上角的「查看某个 Key 用量」切换器。
+ * key 为完整密钥（仅下发给已鉴权的 admin，作为 viewKey 过滤值）；
+ * 没有任何请求的 Key（如仅用于鉴权的 admin）不会出现在列表里。
+ */
+export interface KeyUsage {
+  key: string
+  name: string | null
+  role: string
+  requests: number
+  totalTokens: number
+}
+
 /** 用户角色 */
 export type UserRole = "admin" | string
 
@@ -77,6 +90,10 @@ export interface LogEntry {
   model: string
   /** 命中的渠道；请求在选定渠道前失败时为 null */
   provider: string | null
+  /** 发起请求的 Key 名称（api.yaml 的 name，缺省时为 null，前端回退到角色） */
+  keyName: string | null
+  /** 发起请求的 Key 角色（admin / user / …）；配置中已不存在时为 "unknown" */
+  keyRole: string
   processTime: number
   firstResponseTime: number
   promptTokens: number

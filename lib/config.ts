@@ -54,11 +54,30 @@ export function validateKey(apiKey: string): { valid: boolean; role?: string } {
   return entry ? { valid: true, role: entry.role || "user" } : { valid: false }
 }
 
-/** 管理员获取全部可查看的 Key 列表 */
-export function listKeys(adminKey: string): ApiKeyEntry[] {
-  requireAdmin(adminKey)
+/**
+ * key → { name, role } 目录，用于把统计/日志里的 api_key 解析成可读标签。
+ * 完整密钥不会离开服务端：调用方只取出 name/role 拼成展示用标签。
+ */
+export function keyDirectory(): Map<string, { name: string | null; role: string }> {
   const { config } = readConfig()
-  return config.api_keys!.map((e) => ({ api: e.api, role: e.role || "user", name: e.name }))
+  const map = new Map<string, { name: string | null; role: string }>()
+  for (const e of config.api_keys!) {
+    map.set(e.api, { name: e.name ?? null, role: e.role || "user" })
+  }
+  return map
+}
+
+/**
+ * 校验 viewKey 合法性：空值表示「查看全部 Key 的聚合用量」，返回 null；
+ * 非空时必须是 api.yaml 中真实存在的 Key，否则抛 403，避免管理员注入任意密钥探测数据。
+ */
+export function resolveViewKey(viewKey: string | null | undefined): string | null {
+  if (!viewKey) return null
+  const { config } = readConfig()
+  if (!config.api_keys!.some((e) => e.api === viewKey)) {
+    throw new ApiError(403, "Unknown view key")
+  }
+  return viewKey
 }
 
 /** 展开 provider 的 model 配置（字符串或 {original: display} 映射）为统一结构 */

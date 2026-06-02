@@ -34,11 +34,20 @@ pnpm lint     # eslint (must pass; CI runs it)
 
 ## Auth model
 
-There are no sessions/cookies. An "API key" is an entry in `api.yaml`'s `api_keys`. The browser
-stores the active key in `localStorage` and sends it as the `x-api-key` header on every request
-(`requireApiKeyParam` falls back to a query param). The server re-validates the key against
-`api.yaml` on each call via `requireKey` / `requireAdmin`. Roles: `admin` can edit the config
-(Configuration screen) and view another key's stats (`viewingKey` vs `key` in `app/page.tsx`).
+There are no sessions/cookies. **Login is admin-only**: the Gate validates the entered key and
+only admits it when its `role` is `admin`. The browser stores that admin key in `localStorage`
+(`uniapi_admin_key`) and sends it as the `x-api-key` header on every request
+(`requireApiKeyParam` falls back to a query param). Every stats/logs/config route re-validates it
+with `requireAdmin` on each call.
+
+**Viewing a key's usage** is separate from auth. The header is always the admin key; a `?key=`
+query param (the `viewKey`) selects *whose* usage to show. `viewKey` empty/absent → aggregate
+across **all** keys (the default). `resolveViewKey` (in `lib/config.ts`) validates that a
+non-empty `viewKey` is a real `api.yaml` key before it reaches SQL. The browser stores the
+current selection in `uniapi_view_key`; the sidebar **KeySwitcher** (`key-switcher.tsx`, fed by
+`GET /api/stats/keys`) lists only keys that have ≥1 request. Raw keys belonging to other users are
+never needed by the logs UI — `lib/stats.ts` resolves each request's `api_key` to a `{keyName,
+keyRole}` label via `keyDirectory()` so the Logs screen can tag rows without leaking secrets.
 
 ## Request flow
 
@@ -48,9 +57,10 @@ stores the active key in `localStorage` and sends it as the `x-api-key` header o
 - **Data fetching**: TanStack Query hooks in `hooks/use-stats.ts`, which call the typed client
   in `lib/api-client.ts`, which hits the API routes.
 - **API routes** (`app/api/**/route.ts`) are thin: wrap the body in `handleRoute()` (from
-  `lib/api-helpers.ts`) for uniform error→JSON, pull the key with `requireApiKeyParam`, then
-  delegate to `lib/stats.ts` (DB stats) or `lib/config.ts` (yaml). Throw `ApiError(status, msg)`
-  for expected failures.
+  `lib/api-helpers.ts`) for uniform error→JSON, gate with `requireAdmin(requireApiKeyParam(...))`,
+  resolve the optional `?key=` via `resolveViewKey`, then delegate to `lib/stats.ts` (DB stats,
+  always called with `viewKey: string | null`) or `lib/config.ts` (yaml). Throw
+  `ApiError(status, msg)` for expected failures.
 
 ## Cross-database rules (lib/db.ts + lib/stats.ts)
 
@@ -62,7 +72,8 @@ rules must hold for both engines (both were the cause of a "no data on Postgres"
   folds unquoted identifiers to lowercase (`totaltokens`), so the camelCase reads in JS return
   `undefined`. SQLite preserves case, so unquoted aliases pass locally and break in production.
 - **Chat traffic spans multiple endpoints**: filter on the `CHAT_ENDPOINTS` array
-  (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`) via the `endpointIn()` helper, never
+  (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`) via the `buildScope()` helper (which
+  also appends the optional `viewKey` filter and emits the leading placeholders/params), never
   a single hard-coded endpoint — uni-api logs OpenAI, Anthropic, and Responses-style calls under
   different `endpoint` values.
 

@@ -4,6 +4,7 @@ import * as React from "react"
 import { useState } from "react"
 import { Icons, type IconComponent } from "@/components/dashboard/icons"
 import { Logo } from "@/components/dashboard/primitives"
+import { KeySwitcher } from "@/components/dashboard/key-switcher"
 import { fmt } from "@/lib/format"
 
 export type PageId = "overview" | "models" | "channels" | "logs" | "tester" | "config"
@@ -40,6 +41,53 @@ function navBtnStyle(): React.CSSProperties {
     transition: "all .18s",
     whiteSpace: "nowrap",
   }
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: "0.12em",
+  color: "var(--ink-faint)",
+}
+
+// 收缩/展开侧栏的小图标按钮（展开时在标题栏右侧，收缩时在 Logo 下方居中）。
+function IconButton({
+  icon: IconC,
+  title,
+  onClick,
+  tone = "muted",
+}: {
+  icon: IconComponent
+  title: string
+  onClick: () => void
+  tone?: "muted" | "danger"
+}) {
+  const [h, setH] = useState(false)
+  const base = "var(--ink-3)"
+  const hover = tone === "danger" ? "var(--down)" : "var(--ink)"
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: "var(--r-sm)",
+        border: "none",
+        background: h ? "var(--surface-hover)" : "transparent",
+        color: h ? hover : base,
+        display: "grid",
+        placeItems: "center",
+        transition: "background .18s, color .18s",
+        flexShrink: 0,
+      }}
+    >
+      <IconC size={18} />
+    </button>
+  )
 }
 
 function NavItem({
@@ -102,11 +150,11 @@ function NavItem({
 export function Sidebar({
   page,
   setPage,
-  role,
   theme,
   toggleTheme,
-  viewingKey,
-  onSettings,
+  adminKey,
+  viewKey,
+  setViewKey,
   onSignOut,
   collapsed,
   setCollapsed,
@@ -115,175 +163,160 @@ export function Sidebar({
 }: {
   page: PageId
   setPage: (p: PageId) => void
-  role: string
   theme: string
   toggleTheme: () => void
-  viewingKey: string
-  onSettings: () => void
+  adminKey: string
+  viewKey: string | null
+  setViewKey: (v: string | null) => void
   onSignOut: () => void
   collapsed: boolean
   setCollapsed: (v: boolean) => void
   mobileOpen: boolean
   setMobileOpen: (v: boolean) => void
 }) {
-  const isAdmin = role === "admin"
-  const items = NAV.filter((n) => !n.admin || isAdmin)
+  // 仅 admin 可登录，因此导航项全部可见（包含仅管理员的 Configuration）。
+  const items = NAV
 
-  const content = (
+  // 收缩仅作用于桌面端侧栏；移动端抽屉始终展开（isCollapsed 恒为 false）。
+  const renderContent = (isCollapsed: boolean, isMobile: boolean) => (
     <>
-      <div style={{ padding: "26px 22px 22px", display: "flex", alignItems: "center", gap: 11 }}>
-        <Logo size={32} />
-        {!collapsed && (
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1 }}>UniAPI</div>
-            <div style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.14em", fontWeight: 600, marginTop: 3 }}>
-              GATEWAY
+      {/* header: logo + brand + collapse/close affordance */}
+      <div
+        style={
+          isCollapsed
+            ? { padding: "22px 0 14px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }
+            : { padding: "22px 18px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }
+        }
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+          <Logo size={30} />
+          {!isCollapsed && (
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1 }}>UniAPI</div>
+              <div style={{ ...sectionLabelStyle, letterSpacing: "0.14em", marginTop: 3 }}>GATEWAY</div>
             </div>
-          </div>
+          )}
+        </div>
+        {isMobile ? (
+          <IconButton icon={Icons.x} title="Close" onClick={() => setMobileOpen(false)} />
+        ) : (
+          <IconButton
+            icon={Icons.panelLeft}
+            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setCollapsed(!isCollapsed)}
+          />
         )}
       </div>
 
-      <nav style={{ flex: 1, padding: "8px 14px", display: "flex", flexDirection: "column", gap: 3 }}>
-        {!collapsed && (
-          <div
-            style={{
-              fontSize: 10.5,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              color: "var(--ink-faint)",
-              padding: "10px 12px 8px",
-            }}
-          >
-            ANALYTICS
-          </div>
-        )}
+      {/* key usage switcher */}
+      <div style={{ padding: isCollapsed ? "2px 16px 12px" : "2px 14px 12px" }}>
+        <KeySwitcher adminKey={adminKey} value={viewKey} onChange={setViewKey} collapsed={isCollapsed} />
+      </div>
+
+      <nav style={{ flex: 1, padding: "4px 14px 8px", display: "flex", flexDirection: "column", gap: 3, overflowY: "auto" }}>
+        {!isCollapsed && <div style={{ ...sectionLabelStyle, padding: "8px 12px 8px" }}>ANALYTICS</div>}
         {items.map((n) => {
           const IconC = Icons[n.icon]
           const active = page === n.id
-          if (n.id === "tester") {
-            return (
-              <React.Fragment key={n.id}>
-                {!collapsed && (
-                  <div
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      letterSpacing: "0.12em",
-                      color: "var(--ink-faint)",
-                      padding: "16px 12px 8px",
-                    }}
-                  >
-                    OPERATIONS
-                  </div>
-                )}
-                <NavItem
-                  entry={n}
-                  IconC={IconC}
-                  active={active}
-                  collapsed={collapsed}
-                  onClick={() => {
-                    setPage(n.id)
-                    setMobileOpen(false)
-                  }}
-                />
-              </React.Fragment>
-            )
-          }
-          return (
+          const item = (
             <NavItem
               key={n.id}
               entry={n}
               IconC={IconC}
               active={active}
-              collapsed={collapsed}
+              collapsed={isCollapsed}
               onClick={() => {
                 setPage(n.id)
                 setMobileOpen(false)
               }}
             />
           )
+          if (n.id === "tester") {
+            return (
+              <React.Fragment key={n.id}>
+                {!isCollapsed && <div style={{ ...sectionLabelStyle, padding: "16px 12px 8px" }}>OPERATIONS</div>}
+                {item}
+              </React.Fragment>
+            )
+          }
+          return item
         })}
       </nav>
 
-      <div style={{ padding: 14, borderTop: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 6 }}>
-        <button
-          className="sidebar-collapse-btn"
-          onClick={() => setCollapsed(!collapsed)}
-          style={{ ...navBtnStyle(), justifyContent: collapsed ? "center" : "flex-start" }}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-        >
-          <Icons.chevron size={18} style={{ transform: collapsed ? "none" : "rotate(180deg)", transition: "transform .2s" }} />
-          {!collapsed && <span>Collapse</span>}
-        </button>
-        <button
-          onClick={toggleTheme}
-          style={{ ...navBtnStyle(), justifyContent: collapsed ? "center" : "flex-start" }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-        >
-          {theme === "dark" ? <Icons.sun size={18} /> : <Icons.moon size={18} />}
-          {!collapsed && <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
-        </button>
-        <button
-          onClick={onSettings}
-          style={{ ...navBtnStyle(), justifyContent: collapsed ? "center" : "flex-start" }}
-          title={collapsed ? "API Keys" : undefined}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-        >
-          <Icons.key size={18} />
-          {!collapsed && <span>API Keys</span>}
-        </button>
-        {!collapsed && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 12px",
-              marginTop: 4,
-              background: "var(--surface-2)",
-              borderRadius: "var(--r-md)",
-              border: "1px solid var(--line)",
-            }}
-          >
+      <div
+        style={{
+          padding: 14,
+          borderTop: "1px solid var(--line)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          alignItems: isCollapsed ? "center" : "stretch",
+        }}
+      >
+        {isCollapsed ? (
+          <>
+            <IconButton icon={theme === "dark" ? Icons.sun : Icons.moon} title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={toggleTheme} />
+            <IconButton icon={Icons.logout} title="Sign out" onClick={onSignOut} tone="danger" />
+          </>
+        ) : (
+          <>
+            <button
+              onClick={toggleTheme}
+              style={navBtnStyle()}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              {theme === "dark" ? <Icons.sun size={18} /> : <Icons.moon size={18} />}
+              <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+            </button>
             <div
               style={{
-                width: 34,
-                height: 34,
-                borderRadius: 99,
-                background: "var(--accent-soft)",
-                color: "var(--accent-text)",
-                display: "grid",
-                placeItems: "center",
-                fontWeight: 700,
-                fontSize: 13,
-                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                marginTop: 4,
+                background: "var(--surface-2)",
+                borderRadius: "var(--r-md)",
+                border: "1px solid var(--line)",
               }}
             >
-              {isAdmin ? "AD" : "US"}
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, textTransform: "capitalize" }}>{role}</div>
               <div
-                className="mono"
-                style={{ fontSize: 10.5, color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 99,
+                  background: "var(--accent-soft)",
+                  color: "var(--accent-text)",
+                  display: "grid",
+                  placeItems: "center",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  flexShrink: 0,
+                }}
               >
-                {fmt.keyShort(viewingKey)}
+                AD
               </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>Admin</div>
+                <div
+                  className="mono"
+                  style={{ fontSize: 10.5, color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {fmt.keyShort(adminKey)}
+                </div>
+              </div>
+              <button
+                onClick={onSignOut}
+                title="Sign out"
+                style={{ background: "none", border: "none", color: "var(--ink-3)", display: "grid", placeItems: "center", padding: 4 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--down)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-3)")}
+              >
+                <Icons.logout size={16} />
+              </button>
             </div>
-            <button
-              onClick={onSignOut}
-              title="Sign out"
-              style={{ background: "none", border: "none", color: "var(--ink-3)", display: "grid", placeItems: "center", padding: 4 }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--down)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-3)")}
-            >
-              <Icons.logout size={16} />
-            </button>
-          </div>
+          </>
         )}
       </div>
     </>
@@ -307,7 +340,7 @@ export function Sidebar({
           transition: "width .3s var(--ease)",
         }}
       >
-        {content}
+        {renderContent(collapsed, false)}
       </aside>
 
       {/* mobile drawer */}
@@ -328,7 +361,7 @@ export function Sidebar({
               animation: "slideIn .25s var(--ease)",
             }}
           >
-            {content}
+            {renderContent(false, true)}
           </aside>
         </div>
       )}
