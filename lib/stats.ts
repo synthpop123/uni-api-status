@@ -13,14 +13,20 @@ import type {
 
 const CHAT_ENDPOINT = "POST /v1/chat/completions"
 
-// 跨 SQLite / PostgreSQL 通用的维度聚合字段（success 在两种库里都能与 true/false 比较）
-// 注意：成功率必须用 CASE 表达式求平均，而非 CAST(success AS FLOAT)——后者在
-// PostgreSQL 里会因 boolean 无法直接转 float 而报错（与 getOverview 口径保持一致）。
+// 将 channel_stats 先按 request_id 压成一行，避免与 request_stats 一对多 join 时放大请求数与 token 量。
+const CHANNEL_ROLLUP = `
+  SELECT request_id, MAX(CASE WHEN success = true THEN 1 ELSE 0 END) as success
+  FROM channel_stats
+  GROUP BY request_id
+`
+
+// request_stats 口径的维度聚合字段：请求数 / token / 耗时均只统计每个请求一次；
+// 成功率则使用上面的 channel_stats rollup 标记“该请求是否至少有一次成功渠道”。
 const DIMENSION_FIELDS = `
   COUNT(*) as requests,
-  COALESCE(SUM(CASE WHEN c.success = true THEN 1 ELSE 0 END), 0) as successes,
-  COALESCE(SUM(CASE WHEN c.success = false THEN 1 ELSE 0 END), 0) as failures,
-  COALESCE(AVG(CASE WHEN c.success = true THEN 1.0 ELSE 0.0 END), 0) as successRate,
+  COALESCE(SUM(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1 ELSE 0 END), 0) as successes,
+  COALESCE(SUM(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 0 ELSE 1 END), 0) as failures,
+  COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as successRate,
   COALESCE(SUM(r.total_tokens), 0) as totalTokens,
   COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
   COALESCE(SUM(r.completion_tokens), 0) as completionTokens,
@@ -32,33 +38,23 @@ const toNumber = (v: unknown) => Number(v ?? 0)
 const toBool = (v: unknown) => v === true || v === 1 || v === "1" || v === "true"
 
 export async function getOverview(apiKey: string): Promise<OverviewStats> {
-  // 基础聚合只查 request_stats，避免与 channel_stats 的一对多 join 放大请求/Token 计数。
-  // successRate 单独用 join 求平均（与维度统计口径一致：按尝试计成功率）。
-  const [baseRows, successRows] = await Promise.all([
-    query(
-      `SELECT
-         COUNT(*) as requests,
-         COALESCE(SUM(total_tokens), 0) as totalTokens,
-         COALESCE(SUM(prompt_tokens), 0) as promptTokens,
-         COALESCE(SUM(completion_tokens), 0) as completionTokens,
-         COALESCE(AVG(process_time), 0) as avgProcessTime,
-         COALESCE(AVG(first_response_time), 0) as avgFirstResponseTime,
-         COUNT(DISTINCT model) as activeModels,
-         COUNT(DISTINCT provider) as activeChannels
-       FROM request_stats
-       WHERE api_key = $1 AND endpoint = $2`,
-      [apiKey, CHAT_ENDPOINT],
-    ),
-    query(
-      `SELECT COALESCE(AVG(CASE WHEN c.success = true THEN 1.0 ELSE 0.0 END), 0) as successRate
-       FROM request_stats r
-       LEFT JOIN channel_stats c ON r.request_id = c.request_id
-       WHERE r.api_key = $1 AND r.endpoint = $2`,
-      [apiKey, CHAT_ENDPOINT],
-    ),
-  ])
-  const r = baseRows[0] ?? {}
-  const s = successRows[0] ?? {}
+  const rows = await query(
+    `SELECT
+       COUNT(*) as requests,
+       COALESCE(SUM(r.total_tokens), 0) as totalTokens,
+       COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
+       COALESCE(SUM(r.completion_tokens), 0) as completionTokens,
+       COALESCE(AVG(r.process_time), 0) as avgProcessTime,
+       COALESCE(AVG(r.first_response_time), 0) as avgFirstResponseTime,
+       COUNT(DISTINCT r.model) as activeModels,
+       COUNT(DISTINCT r.provider) as activeChannels,
+       COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as successRate
+     FROM request_stats r
+     LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
+     WHERE r.api_key = $1 AND r.endpoint = $2`,
+    [apiKey, CHAT_ENDPOINT],
+  )
+  const r = rows[0] ?? {}
   return {
     requests: toNumber(r.requests),
     totalTokens: toNumber(r.totalTokens),
@@ -66,7 +62,7 @@ export async function getOverview(apiKey: string): Promise<OverviewStats> {
     completionTokens: toNumber(r.completionTokens),
     avgProcessTime: toNumber(r.avgProcessTime),
     avgFirstResponseTime: toNumber(r.avgFirstResponseTime),
-    successRate: toNumber(s.successRate),
+    successRate: toNumber(r.successRate),
     activeModels: toNumber(r.activeModels),
     activeChannels: toNumber(r.activeChannels),
   }
@@ -186,7 +182,7 @@ export async function getModelStats(apiKey: string): Promise<ModelStat[]> {
     query(
       `SELECT r.model, ${DIMENSION_FIELDS}
        FROM request_stats r
-       LEFT JOIN channel_stats c ON r.request_id = c.request_id
+       LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
        WHERE r.api_key = $1 AND r.endpoint = $2
        GROUP BY r.model
        ORDER BY requests DESC`,
@@ -205,7 +201,7 @@ export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
     query(
       `SELECT r.provider, ${DIMENSION_FIELDS}
        FROM request_stats r
-       LEFT JOIN channel_stats c ON r.request_id = c.request_id
+       LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
        WHERE r.api_key = $1 AND r.endpoint = $2
        GROUP BY r.provider
        ORDER BY requests DESC`,
@@ -255,17 +251,18 @@ export async function getLogs(
     params.push(provider)
   }
   if (status === "success" || status === "failed") {
-    where.push(`c.success = $${i++}`)
-    params.push(status === "success")
+    where.push(`COALESCE(cs.success, 0) = $${i++}`)
+    params.push(status === "success" ? 1 : 0)
   }
 
-  // 多取一条用于判断是否有下一页
+  // 多取一条用于判断是否有下一页。channel_stats 先 rollup，避免 PostgreSQL 的 boolean MAX
+  // 兼容性问题，也避免多渠道重试时一条请求被重复展示。
   const offset = (page - 1) * limit
   const sql = `
     SELECT
       r.timestamp,
-      MAX(COALESCE(c.success, false)) as success,
-      MAX(COALESCE(r.is_flagged, false)) as isFlagged,
+      COALESCE(cs.success, 0) as success,
+      COALESCE(r.is_flagged, false) as isFlagged,
       r.model,
       r.provider,
       r.process_time as processTime,
@@ -275,9 +272,8 @@ export async function getLogs(
       r.total_tokens as totalTokens,
       r.text
     FROM request_stats r
-    LEFT JOIN channel_stats c ON r.request_id = c.request_id
+    LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
     WHERE ${where.join(" AND ")}
-    GROUP BY r.request_id
     ORDER BY r.timestamp DESC
     LIMIT $${i++} OFFSET $${i++}`
   params.push(limit + 1, offset)
