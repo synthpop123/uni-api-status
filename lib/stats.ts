@@ -11,7 +11,17 @@ import type {
   TimeseriesResponse,
 } from "@/lib/types"
 
-const CHAT_ENDPOINT = "POST /v1/chat/completions"
+// uni-api 会把 OpenAI 风格 (/v1/chat/completions、/v1/responses) 与 Anthropic 风格
+// (/v1/messages) 的对话请求都写入 request_stats。三者都算“对话”流量，统计时需一并纳入，
+// 否则纯 Claude（/v1/messages）或 Responses API 后端会让面板完全没有数据。
+const CHAT_ENDPOINTS = ["POST /v1/chat/completions", "POST /v1/messages", "POST /v1/responses"]
+
+// 生成 `endpoint IN ($n, $n+1, …)` 子句：从 start 编号开始，返回子句文本与下一个可用占位符序号。
+// 这样无论后端是 PostgreSQL 还是 SQLite（db.ts 会把 $n 转成 ?）都能正确绑定多个端点。
+function endpointIn(start: number): { clause: string; next: number } {
+  const placeholders = CHAT_ENDPOINTS.map((_, k) => `$${start + k}`).join(", ")
+  return { clause: `(${placeholders})`, next: start + CHAT_ENDPOINTS.length }
+}
 
 // 将 channel_stats 先按 request_id 压成一行，避免与 request_stats 一对多 join 时放大请求数与 token 量。
 const CHANNEL_ROLLUP = `
@@ -22,37 +32,55 @@ const CHANNEL_ROLLUP = `
 
 // request_stats 口径的维度聚合字段：请求数 / token / 耗时均只统计每个请求一次；
 // 成功率则使用上面的 channel_stats rollup 标记“该请求是否至少有一次成功渠道”。
+// 注意：别名一律加双引号。PostgreSQL 会把未加引号的标识符折叠为小写
+// （totalTokens → totaltokens），导致前端按 camelCase 取值时拿到 undefined→0；
+// SQLite 则保留原样。加引号后两种数据库都返回 camelCase，前端读取保持一致。
 const DIMENSION_FIELDS = `
   COUNT(*) as requests,
   COALESCE(SUM(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1 ELSE 0 END), 0) as successes,
   COALESCE(SUM(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 0 ELSE 1 END), 0) as failures,
-  COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as successRate,
-  COALESCE(SUM(r.total_tokens), 0) as totalTokens,
-  COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
-  COALESCE(SUM(r.completion_tokens), 0) as completionTokens,
-  COALESCE(AVG(r.process_time), 0) as avgProcessTime,
-  COALESCE(AVG(r.first_response_time), 0) as avgFirstResponseTime
+  COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as "successRate",
+  COALESCE(SUM(r.total_tokens), 0) as "totalTokens",
+  COALESCE(SUM(r.prompt_tokens), 0) as "promptTokens",
+  COALESCE(SUM(r.completion_tokens), 0) as "completionTokens",
+  COALESCE(AVG(r.process_time), 0) as "avgProcessTime",
+  COALESCE(AVG(r.first_response_time), 0) as "avgFirstResponseTime"
 `
 
 const toNumber = (v: unknown) => Number(v ?? 0)
 const toBool = (v: unknown) => v === true || v === 1 || v === "1" || v === "true"
 
+// uni-api 的 model_price 以「每百万 token 美元价」记录（如 claude 的 5,25）。
+// 单条请求成本 = 输入 token / 1e6 × 输入价 + 输出 token / 1e6 × 输出价。
+// 两个价格都缺失时返回 null，前端据此显示「—」。
+function computeCost(
+  promptPrice: unknown,
+  completionPrice: unknown,
+  promptTokens: unknown,
+  completionTokens: unknown,
+): number | null {
+  if (promptPrice == null && completionPrice == null) return null
+  const pp = Number(promptPrice ?? 0)
+  const cp = Number(completionPrice ?? 0)
+  return (toNumber(promptTokens) * pp + toNumber(completionTokens) * cp) / 1e6
+}
+
 export async function getOverview(apiKey: string): Promise<OverviewStats> {
   const rows = await query(
     `SELECT
        COUNT(*) as requests,
-       COALESCE(SUM(r.total_tokens), 0) as totalTokens,
-       COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
-       COALESCE(SUM(r.completion_tokens), 0) as completionTokens,
-       COALESCE(AVG(r.process_time), 0) as avgProcessTime,
-       COALESCE(AVG(r.first_response_time), 0) as avgFirstResponseTime,
-       COUNT(DISTINCT r.model) as activeModels,
-       COUNT(DISTINCT r.provider) as activeChannels,
-       COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as successRate
+       COALESCE(SUM(r.total_tokens), 0) as "totalTokens",
+       COALESCE(SUM(r.prompt_tokens), 0) as "promptTokens",
+       COALESCE(SUM(r.completion_tokens), 0) as "completionTokens",
+       COALESCE(AVG(r.process_time), 0) as "avgProcessTime",
+       COALESCE(AVG(r.first_response_time), 0) as "avgFirstResponseTime",
+       COUNT(DISTINCT r.model) as "activeModels",
+       COUNT(DISTINCT r.provider) as "activeChannels",
+       COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as "successRate"
      FROM request_stats r
      LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-     WHERE r.api_key = $1 AND r.endpoint = $2`,
-    [apiKey, CHAT_ENDPOINT],
+     WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}`,
+    [apiKey, ...CHAT_ENDPOINTS],
   )
   const r = rows[0] ?? {}
   return {
@@ -92,12 +120,13 @@ export async function getTimeseries(apiKey: string, range: TimeseriesRange): Pro
   const cutoffIso = cutoffMs == null ? null : new Date(cutoffMs).toISOString()
 
   // 窗口内的请求（仅 request_stats，行数=请求数，tok=Token）
-  const params: unknown[] = [apiKey, CHAT_ENDPOINT]
+  const ep = endpointIn(2)
+  const params: unknown[] = [apiKey, ...CHAT_ENDPOINTS]
   let sql = `SELECT timestamp, COALESCE(total_tokens, 0) as tok
              FROM request_stats
-             WHERE api_key = $1 AND endpoint = $2`
+             WHERE api_key = $1 AND endpoint IN ${ep.clause}`
   if (cutoffIso != null) {
-    sql += ` AND timestamp >= $3`
+    sql += ` AND timestamp >= $${ep.next}`
     params.push(cutoffIso)
   }
   sql += ` ORDER BY timestamp ASC`
@@ -109,8 +138,8 @@ export async function getTimeseries(apiKey: string, range: TimeseriesRange): Pro
       : query(
           `SELECT COUNT(*) as cnt, COALESCE(SUM(total_tokens), 0) as tok
            FROM request_stats
-           WHERE api_key = $1 AND endpoint = $2 AND timestamp < $3`,
-          [apiKey, CHAT_ENDPOINT, cutoffIso],
+           WHERE api_key = $1 AND endpoint IN ${ep.clause} AND timestamp < $${ep.next}`,
+          [apiKey, ...CHAT_ENDPOINTS, cutoffIso],
         )
 
   const [rows, baseRows] = await Promise.all([query(sql, params), baselinePromise])
@@ -152,11 +181,12 @@ async function buildSparks(apiKey: string, field: "model" | "provider"): Promise
   const now = Date.now()
   const start = now - SPARK_WINDOW_MS
   const cutoffIso = new Date(start).toISOString()
+  const ep = endpointIn(2)
   const rows = await query(
     `SELECT ${field} as name, timestamp
      FROM request_stats
-     WHERE api_key = $1 AND endpoint = $2 AND timestamp >= $3`,
-    [apiKey, CHAT_ENDPOINT, cutoffIso],
+     WHERE api_key = $1 AND endpoint IN ${ep.clause} AND timestamp >= $${ep.next}`,
+    [apiKey, ...CHAT_ENDPOINTS, cutoffIso],
   )
   const step = SPARK_WINDOW_MS / SPARK_BUCKETS
   const map = new Map<string, number[]>()
@@ -183,10 +213,10 @@ export async function getModelStats(apiKey: string): Promise<ModelStat[]> {
       `SELECT r.model, ${DIMENSION_FIELDS}
        FROM request_stats r
        LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-       WHERE r.api_key = $1 AND r.endpoint = $2
+       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}
        GROUP BY r.model
        ORDER BY requests DESC`,
-      [apiKey, CHAT_ENDPOINT],
+      [apiKey, ...CHAT_ENDPOINTS],
     ),
     buildSparks(apiKey, "model"),
   ])
@@ -202,10 +232,10 @@ export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
       `SELECT r.provider, ${DIMENSION_FIELDS}
        FROM request_stats r
        LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-       WHERE r.api_key = $1 AND r.endpoint = $2
+       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}
        GROUP BY r.provider
        ORDER BY requests DESC`,
-      [apiKey, CHAT_ENDPOINT],
+      [apiKey, ...CHAT_ENDPOINTS],
     ),
     buildSparks(apiKey, "provider"),
   ])
@@ -218,12 +248,12 @@ export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
 export async function getFilters(apiKey: string): Promise<{ models: string[]; providers: string[] }> {
   const [models, providers] = await Promise.all([
     query(
-      `SELECT DISTINCT model FROM request_stats WHERE api_key = $1 AND endpoint = $2 AND model IS NOT NULL ORDER BY model`,
-      [apiKey, CHAT_ENDPOINT],
+      `SELECT DISTINCT model FROM request_stats WHERE api_key = $1 AND endpoint IN ${endpointIn(2).clause} AND model IS NOT NULL ORDER BY model`,
+      [apiKey, ...CHAT_ENDPOINTS],
     ),
     query(
-      `SELECT DISTINCT provider FROM request_stats WHERE api_key = $1 AND endpoint = $2 AND provider IS NOT NULL ORDER BY provider`,
-      [apiKey, CHAT_ENDPOINT],
+      `SELECT DISTINCT provider FROM request_stats WHERE api_key = $1 AND endpoint IN ${endpointIn(2).clause} AND provider IS NOT NULL ORDER BY provider`,
+      [apiKey, ...CHAT_ENDPOINTS],
     ),
   ])
   return {
@@ -238,9 +268,10 @@ export async function getLogs(
 ): Promise<LogsResponse> {
   const { page, limit, model, provider, status } = options
 
-  const where: string[] = ["r.api_key = $1", "r.endpoint = $2"]
-  const params: unknown[] = [apiKey, CHAT_ENDPOINT]
-  let i = 3
+  const ep = endpointIn(2)
+  const where: string[] = ["r.api_key = $1", `r.endpoint IN ${ep.clause}`]
+  const params: unknown[] = [apiKey, ...CHAT_ENDPOINTS]
+  let i = ep.next
 
   if (model) {
     where.push(`r.model = $${i++}`)
@@ -262,14 +293,16 @@ export async function getLogs(
     SELECT
       r.timestamp,
       COALESCE(cs.success, 0) as success,
-      COALESCE(r.is_flagged, false) as isFlagged,
+      COALESCE(r.is_flagged, false) as "isFlagged",
       r.model,
       r.provider,
-      r.process_time as processTime,
-      r.first_response_time as firstResponseTime,
-      r.prompt_tokens as promptTokens,
-      r.completion_tokens as completionTokens,
-      r.total_tokens as totalTokens,
+      r.process_time as "processTime",
+      r.first_response_time as "firstResponseTime",
+      r.prompt_tokens as "promptTokens",
+      r.completion_tokens as "completionTokens",
+      r.total_tokens as "totalTokens",
+      r.prompt_price as "promptPrice",
+      r.completion_price as "completionPrice",
       r.text
     FROM request_stats r
     LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
@@ -291,6 +324,7 @@ export async function getLogs(
     promptTokens: toNumber(r.promptTokens),
     completionTokens: toNumber(r.completionTokens),
     totalTokens: toNumber(r.totalTokens),
+    cost: computeCost(r.promptPrice, r.completionPrice, r.promptTokens, r.completionTokens),
     text: (r.text as string | null) ?? null,
   }))
 

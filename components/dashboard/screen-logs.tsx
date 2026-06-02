@@ -107,7 +107,7 @@ export function Logs({ apiKey }: { apiKey: string }) {
           {/* desktop */}
           <Card pad={0} style={{ overflow: "hidden" }} className="table-desktop">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 940 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--line)" }}>
                     <th style={thStyle("left")}>Time</th>
@@ -117,6 +117,7 @@ export function Logs({ apiKey }: { apiKey: string }) {
                     <th style={thStyle("right")}>Process</th>
                     <th style={thStyle("right")}>First Token</th>
                     <th style={thStyle("right")}>Tokens (P / C / T)</th>
+                    <th style={thStyle("right")}>Cost</th>
                     <th style={{ ...thStyle("center"), width: 80 }}>Mod.</th>
                   </tr>
                 </thead>
@@ -144,6 +145,12 @@ export function Logs({ apiKey }: { apiKey: string }) {
                       <td className="tnum mono" style={{ ...tdStyle, textAlign: "right", fontSize: 12, color: "var(--ink-2)" }}>
                         {fmt.compact(l.promptTokens)} / {fmt.compact(l.completionTokens)} /{" "}
                         <span style={{ color: "var(--ink)", fontWeight: 700 }}>{fmt.compact(l.totalTokens)}</span>
+                      </td>
+                      <td
+                        className="tnum"
+                        style={{ ...tdStyle, textAlign: "right", fontSize: 12.5, fontWeight: 600, color: l.cost != null ? "var(--ink)" : "var(--ink-faint)" }}
+                      >
+                        {fmt.money(l.cost)}
                       </td>
                       <td style={{ ...tdStyle, textAlign: "center" }}>
                         {l.isFlagged ? (
@@ -192,6 +199,11 @@ export function Logs({ apiKey }: { apiKey: string }) {
                   <span style={{ color: "var(--ink-3)" }}>
                     Tok <b style={{ color: "var(--ink)" }}>{fmt.compact(l.totalTokens)}</b>
                   </span>
+                  {l.cost != null && (
+                    <span style={{ color: "var(--ink-3)" }}>
+                      Cost <b style={{ color: "var(--ink)" }}>{fmt.money(l.cost)}</b>
+                    </span>
+                  )}
                   {l.isFlagged && (
                     <button
                       onClick={() => setFlagView(l)}

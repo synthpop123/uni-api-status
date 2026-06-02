@@ -212,7 +212,7 @@ export function Config({ apiKey, toast }: { apiKey: string; toast: ToastPush }) 
               </span>
             </span>
           </div>
-          <div style={{ display: "flex", fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: "21px", maxHeight: 560, overflow: "auto" }}>
+          <div style={{ display: "flex", fontFamily: "var(--font-mono)", fontSize: 13, lineHeight: "21px", height: 520, overflow: "hidden" }}>
             <div
               ref={lineRef}
               style={{
@@ -222,6 +222,7 @@ export function Config({ apiKey, toast }: { apiKey: string; toast: ToastPush }) 
                 userSelect: "none",
                 background: "var(--surface-2)",
                 minWidth: 48,
+                overflow: "hidden",
               }}
             >
               {Array.from({ length: lines }, (_, i) => (
@@ -249,7 +250,8 @@ export function Config({ apiKey, toast }: { apiKey: string; toast: ToastPush }) 
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
                 lineHeight: "21px",
-                minHeight: 500,
+                height: "100%",
+                overflow: "auto",
                 tabSize: 2,
                 whiteSpace: "pre",
               }}

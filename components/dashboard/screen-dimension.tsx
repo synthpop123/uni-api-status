@@ -171,7 +171,7 @@ function DimensionTable({
                         <td style={{ ...tdStyle, fontWeight: 600 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 99, background: dotColor(r.successRate), flexShrink: 0 }} />
-                            <span className="mono" style={{ fontSize: 13 }}>{r.name}</span>
+                            <span className="mono" style={{ fontSize: 13, whiteSpace: "nowrap" }}>{r.name}</span>
                           </div>
                         </td>
                         <td style={{ ...tdStyle, width: 130 }}>

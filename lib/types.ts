@@ -77,6 +77,8 @@ export interface LogEntry {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /** 本次请求的美元成本，由 token 数 × model_price 推算；无定价信息时为 null */
+  cost: number | null
   /** 审核拦截内容（uni-api 仅在 isFlagged 时记录，正常请求为 null） */
   text: string | null
 }
