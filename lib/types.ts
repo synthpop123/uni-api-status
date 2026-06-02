@@ -70,8 +70,13 @@ export interface LogEntry {
   success: boolean
   /** 内容是否被 uni-api 道德审核拦截；仅此情况下 text 才有值 */
   isFlagged: boolean
+  /** 上游端点，如 "POST /v1/chat/completions"，用于区分 OpenAI / Anthropic / Responses 风格 */
+  endpoint: string
+  /** 发起请求的客户端 IP，可能缺省 */
+  clientIp: string | null
   model: string
-  provider: string
+  /** 命中的渠道；请求在选定渠道前失败时为 null */
+  provider: string | null
   processTime: number
   firstResponseTime: number
   promptTokens: number

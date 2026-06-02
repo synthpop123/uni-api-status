@@ -19,7 +19,17 @@ const thStyle = (align: "left" | "right" | "center"): React.CSSProperties => ({
   color: "var(--ink-3)",
   whiteSpace: "nowrap",
 })
-const tdStyle: React.CSSProperties = { padding: "13px 18px", fontSize: 13.5, color: "var(--ink)" }
+// verticalAlign: middle 让含图标的 inline-flex 单元格（如 Status）与同行纯文本垂直对齐，
+// 否则表格单元格默认按基线对齐，图标会把 Status 的文字顶得和整行错位。
+const tdStyle: React.CSSProperties = { padding: "13px 18px", fontSize: 13.5, color: "var(--ink)", verticalAlign: "middle" }
+
+// uni-api 把不同风格的对话请求记到不同 endpoint 上，给日志一个短标签便于区分来源。
+function apiLabel(endpoint: string): string {
+  if (endpoint.includes("/v1/chat/completions")) return "Chat"
+  if (endpoint.includes("/v1/messages")) return "Messages"
+  if (endpoint.includes("/v1/responses")) return "Responses"
+  return endpoint.replace(/^POST\s+/, "") || "—"
+}
 
 interface Filters {
   model: string
@@ -107,13 +117,14 @@ export function Logs({ apiKey }: { apiKey: string }) {
           {/* desktop */}
           <Card pad={0} style={{ overflow: "hidden" }} className="table-desktop">
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 940 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1020 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--line)" }}>
                     <th style={thStyle("left")}>Time</th>
                     <th style={{ ...thStyle("left"), width: 70 }}>Status</th>
                     <th style={thStyle("left")}>Model</th>
                     <th style={thStyle("left")}>Channel</th>
+                    <th style={thStyle("left")}>API</th>
                     <th style={thStyle("right")}>Process</th>
                     <th style={thStyle("right")}>First Token</th>
                     <th style={thStyle("right")}>Tokens (P / C / T)</th>
@@ -124,7 +135,12 @@ export function Logs({ apiKey }: { apiKey: string }) {
                 <tbody>
                   {logs.map((l, i) => (
                     <tr key={i} className="trow" style={{ borderBottom: "1px solid var(--line)" }}>
-                      <td className="mono" style={{ ...tdStyle, fontSize: 12, color: "var(--ink-3)" }}>{fmt.dt(l.timestamp)}</td>
+                      <td className="mono" style={{ ...tdStyle, fontSize: 12, color: "var(--ink-3)" }}>
+                        <div>{fmt.dt(l.timestamp)}</div>
+                        {l.clientIp && (
+                          <div style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 2 }}>{l.clientIp}</div>
+                        )}
+                      </td>
                       <td style={tdStyle}>
                         {l.success ? (
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--up)", fontSize: 12.5, fontWeight: 600 }}>
@@ -139,7 +155,25 @@ export function Logs({ apiKey }: { apiKey: string }) {
                         )}
                       </td>
                       <td className="mono" style={{ ...tdStyle, fontSize: 12.5, fontWeight: 600 }}>{l.model}</td>
-                      <td className="mono" style={{ ...tdStyle, fontSize: 12.5, color: "var(--ink-2)" }}>{l.provider}</td>
+                      <td className="mono" style={{ ...tdStyle, fontSize: 12.5, color: l.provider ? "var(--ink-2)" : "var(--ink-faint)" }}>
+                        {l.provider ?? "—"}
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--ink-2)",
+                            background: "var(--surface-hover)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {apiLabel(l.endpoint)}
+                        </span>
+                      </td>
                       <td className="tnum" style={{ ...tdStyle, textAlign: "right", fontSize: 12.5 }}>{fmt.time(l.processTime)}</td>
                       <td className="tnum" style={{ ...tdStyle, textAlign: "right", fontSize: 12.5 }}>{fmt.time(l.firstResponseTime)}</td>
                       <td className="tnum mono" style={{ ...tdStyle, textAlign: "right", fontSize: 12, color: "var(--ink-2)" }}>
@@ -190,8 +224,25 @@ export function Logs({ apiKey }: { apiKey: string }) {
                     </Badge>
                   )}
                 </div>
-                <div className="mono" style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{l.model}</div>
-                <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 10 }}>{l.provider}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <span className="mono" style={{ fontSize: 13, fontWeight: 700 }}>{l.model}</span>
+                  <span
+                    style={{
+                      padding: "1px 7px",
+                      borderRadius: 6,
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      color: "var(--ink-2)",
+                      background: "var(--surface-hover)",
+                    }}
+                  >
+                    {apiLabel(l.endpoint)}
+                  </span>
+                </div>
+                <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 10 }}>
+                  {l.provider ?? "—"}
+                  {l.clientIp && <span style={{ color: "var(--ink-faint)" }}> · {l.clientIp}</span>}
+                </div>
                 <div style={{ display: "flex", gap: 16, fontSize: 12 }} className="tnum">
                   <span style={{ color: "var(--ink-3)" }}>
                     Proc <b style={{ color: "var(--ink)" }}>{fmt.time(l.processTime)}</b>
@@ -275,7 +326,7 @@ function FlagModal({ log, onClose }: { log: LogEntry; onClose: () => void }) {
         <div style={{ display: "flex", gap: 14, marginBottom: 16, fontSize: 12.5, color: "var(--ink-3)", flexWrap: "wrap" }} className="mono">
           <span>{log.model}</span>
           <span>·</span>
-          <span>{log.provider}</span>
+          <span>{log.provider ?? "—"}</span>
           <span>·</span>
           <span>{fmt.dt(log.timestamp)}</span>
         </div>
