@@ -26,6 +26,9 @@ export const fmt = {
   },
   time(s: number | null | undefined): string {
     if (s == null || !Number.isFinite(s)) return "—"
+    // uni-api 用负值（如 first_response_time = -1）标记“请求失败 / 无首响”，
+    // 不是真实耗时，统一显示为“—”而非 -1000ms。
+    if (s < 0) return "—"
     if (s < 1) return Math.round(s * 1000) + "ms"
     return s.toFixed(2) + "s"
   },

@@ -35,6 +35,8 @@ const CHANNEL_ROLLUP = `
 // 注意：别名一律加双引号。PostgreSQL 会把未加引号的标识符折叠为小写
 // （totalTokens → totaltokens），导致前端按 camelCase 取值时拿到 undefined→0；
 // SQLite 则保留原样。加引号后两种数据库都返回 camelCase，前端读取保持一致。
+// 另：uni-api 对失败/无首响的请求会把 first_response_time（偶尔 process_time）写成 -1，
+// 这是哨兵值而非真实耗时，求平均时用 CASE 过滤掉负值，否则均值会被 -1 拉低甚至变负。
 const DIMENSION_FIELDS = `
   COUNT(*) as requests,
   COALESCE(SUM(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1 ELSE 0 END), 0) as successes,
@@ -43,8 +45,8 @@ const DIMENSION_FIELDS = `
   COALESCE(SUM(r.total_tokens), 0) as "totalTokens",
   COALESCE(SUM(r.prompt_tokens), 0) as "promptTokens",
   COALESCE(SUM(r.completion_tokens), 0) as "completionTokens",
-  COALESCE(AVG(r.process_time), 0) as "avgProcessTime",
-  COALESCE(AVG(r.first_response_time), 0) as "avgFirstResponseTime"
+  COALESCE(AVG(CASE WHEN r.process_time >= 0 THEN r.process_time END), 0) as "avgProcessTime",
+  COALESCE(AVG(CASE WHEN r.first_response_time >= 0 THEN r.first_response_time END), 0) as "avgFirstResponseTime"
 `
 
 const toNumber = (v: unknown) => Number(v ?? 0)
@@ -72,8 +74,8 @@ export async function getOverview(apiKey: string): Promise<OverviewStats> {
        COALESCE(SUM(r.total_tokens), 0) as "totalTokens",
        COALESCE(SUM(r.prompt_tokens), 0) as "promptTokens",
        COALESCE(SUM(r.completion_tokens), 0) as "completionTokens",
-       COALESCE(AVG(r.process_time), 0) as "avgProcessTime",
-       COALESCE(AVG(r.first_response_time), 0) as "avgFirstResponseTime",
+       COALESCE(AVG(CASE WHEN r.process_time >= 0 THEN r.process_time END), 0) as "avgProcessTime",
+       COALESCE(AVG(CASE WHEN r.first_response_time >= 0 THEN r.first_response_time END), 0) as "avgFirstResponseTime",
        COUNT(DISTINCT r.model) as "activeModels",
        COUNT(DISTINCT r.provider) as "activeChannels",
        COALESCE(AVG(CASE WHEN COALESCE(cs.success, 0) = 1 THEN 1.0 ELSE 0.0 END), 0) as "successRate"
@@ -229,10 +231,12 @@ export async function getModelStats(apiKey: string): Promise<ModelStat[]> {
 export async function getChannelStats(apiKey: string): Promise<ChannelStat[]> {
   const [rows, sparks] = await Promise.all([
     query(
+      // provider 为 NULL 表示请求在选定渠道前就失败了（无法归因到任何渠道），
+      // 排除它们，避免渠道页/首页出现一个 0% 成功率的 “unknown” 幽灵渠道。
       `SELECT r.provider, ${DIMENSION_FIELDS}
        FROM request_stats r
        LEFT JOIN (${CHANNEL_ROLLUP}) cs ON r.request_id = cs.request_id
-       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause}
+       WHERE r.api_key = $1 AND r.endpoint IN ${endpointIn(2).clause} AND r.provider IS NOT NULL
        GROUP BY r.provider
        ORDER BY requests DESC`,
       [apiKey, ...CHAT_ENDPOINTS],
@@ -294,6 +298,8 @@ export async function getLogs(
       r.timestamp,
       COALESCE(cs.success, 0) as success,
       COALESCE(r.is_flagged, false) as "isFlagged",
+      r.endpoint,
+      r.client_ip as "clientIp",
       r.model,
       r.provider,
       r.process_time as "processTime",
@@ -317,8 +323,10 @@ export async function getLogs(
     timestamp: String(r.timestamp ?? ""),
     success: toBool(r.success),
     isFlagged: toBool(r.isFlagged),
+    endpoint: String(r.endpoint ?? ""),
+    clientIp: r.clientIp ? String(r.clientIp) : null,
     model: String(r.model ?? ""),
-    provider: String(r.provider ?? ""),
+    provider: r.provider ? String(r.provider) : null,
     processTime: toNumber(r.processTime),
     firstResponseTime: toNumber(r.firstResponseTime),
     promptTokens: toNumber(r.promptTokens),
